@@ -1,0 +1,60 @@
+Omnizart for Windows
+
+Extract the complete archive to a folder, then double-click Omnizart.vbs.
+Choose a transcription type and an input file, select an output folder, and
+click Transcribe. Each run creates a new folder in your selected output folder;
+existing output folders are left in place.
+
+Beat tracking accepts MIDI input. The other modes accept audio input. Vocal
+pitch contour produces CSV and WAV files; the other modes produce MIDI and,
+in some cases, CSV files. Transcription runs locally and can take several
+minutes. The included models are trained on particular kinds of music and
+their results may require editing.
+
+Basic Pitch is an alternative model for individual instruments and voice. It
+runs on the CPU and is included with the app. Advanced settings change with
+the selected model; hover over a setting for an explanation.
+
+Transkun is an additional CPU piano model. For music containing both voice
+and piano, try "Reduce vocals"; the optional accompaniment WAV lets you hear
+what the separator removed. Separation can also affect the piano, so compare
+the results with and without it. Choose UVR MDX or the legacy Spleeter model
+in the separation model selector; both run offline on CPU. Select "Add a separate vocal track to MIDI"
+to transcribe the sung melody alongside the instruments in one MIDI file.
+This takes longer and both tracks can require editing. Models & import lists the bundled choices,
+links to their projects and lets you select a complete compatible Omnizart
+music checkpoint folder. Other model formats are not interchangeable.
+
+Pedal Piano is an optional CPU model that predicts piano notes and sustain-pedal
+events. In Models & import, download its checkpoint (about 164 MiB) or import
+the official checkpoint file. The app verifies the model before loading it.
+
+Optional GPU acceleration is available for UVR separation via DirectML on
+compatible NVIDIA, AMD and Intel graphics. Enable "Use GPU for UVR separation";
+CPU is the default. GPU index 0 is the default Windows adapter. If there is
+more than one GPU, try index 1 for the other adapter. Transkun, vocal transcription
+and the other transcription models still use CPU. A compatible DirectX 12
+driver is required; select CPU if GPU initialization fails.
+
+Optional "Smooth fragmented notes" writes a separate `_smoothed.mid` beside
+the original. It is off by default. It joins nearby same-pitch notes when at
+least one is short, using the chosen maximum gap in milliseconds; intentional
+repeated notes can also be merged. Compare the two files. Percussion, named
+vocal tracks and passages with sustain or pitch-bend activity are left alone.
+Some files have no eligible fragments and will sound unchanged.
+The separate "Remove very short notes" option is also off by default and
+can remove genuine short notes. Both options write a separate cleaned MIDI.
+
+For the project licence see LICENSE. Third-party components retain their own
+licences and notices in the runtime and model directories.
+See MODEL-LICENSES.md for the model inventory and unresolved redistribution
+rights. This build is intended for local evaluation until those are resolved.
+
+The NNLS Chroma plugin is licensed under GPL version 2 or later; see
+omnizart/resource/vamp/COPYING. The bundled madmom model files
+are licensed for noncommercial use (CC BY-NC-SA 4.0). Commercial
+distribution or use of those models requires permission from their authors.
+Basic Pitch is distributed under the Apache License 2.0. Its licence and
+notices are included in runtime/Lib/site-packages/basic_pitch-0.4.0.dist-info.
+The UVR MDX inference implementation is adapted from python-audio-separator;
+its MIT licence is in omnizart/desktop/UVR-NOTICES.txt.

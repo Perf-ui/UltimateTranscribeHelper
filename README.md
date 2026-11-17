@@ -1,5 +1,9 @@
 # OMNIZART
 
+For the Windows desktop version, see [Windows build instructions](scripts/windows/BUILDING.md)
+and the [model and licensing inventory](docs/WINDOWS_MODELS.md). The current
+bundle requires further model-rights review before public distribution.
+
 [![build](https://github.com/Music-and-Culture-Technology-Lab/omnizart/workflows/general-check/badge.svg)](https://github.com/Music-and-Culture-Technology-Lab/omnizart/actions?query=workflow%3Ageneral-check)
 [![docs](https://github.com/Music-and-Culture-Technology-Lab/omnizart/workflows/docs/badge.svg?branch=build_doc)](https://music-and-culture-technology-lab.github.io/omnizart-doc/)
 [![PyPI version](https://badge.fury.io/py/omnizart.svg)](https://pypi.org/project/omnizart/)

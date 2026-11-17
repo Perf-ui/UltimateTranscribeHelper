@@ -1,0 +1,25 @@
+# Windows release: model inventory and rights
+
+This is an inventory and a record of the evidence found, not a legal opinion.
+The 2.7 build includes all models below. **Public redistribution is not yet
+cleared**: model-specific terms for several weight files are not established,
+and madmom's bundled model files have a noncommercial licence. Obtain the
+necessary permissions or replace/remove affected models before public release.
+Code licences do not automatically establish the licence of separate weights.
+
+| Component | Installed location | Origin and redistribution status |
+| --- | --- | --- |
+| Omnizart Piano, PianoV2, Pop, Stream, drum, chord, vocal, contour, beat and patch-CNN weights | `omnizart/checkpoints/` in the app | [Upstream checkpoint release](https://github.com/Music-and-Culture-Technology-Lab/omnizart/releases/tag/checkpoints-20211001); the upstream project is MIT, but a separate explicit licence for the released weights was not found. Confirm redistribution rights with the authors. The release assets contain weights; the accompanying checkpoint files are needed too. |
+| Transkun 2.0.1 piano | `runtime/Lib/site-packages/transkun/pretrained/2.0.pt` | The [Transkun package](https://github.com/Yujia-Yan/Transkun) includes this checkpoint and declares MIT for its software. Confirm that the licence also covers the weights before redistributing. The package's licence is in `runtime/Lib/site-packages/transkun-2.0.1.dist-info/LICENSE`. |
+| Pedal Piano (optional download) | `%LOCALAPPDATA%/Omnizart/models/pedal-piano/` | [ByteDance/Kong model](https://zenodo.org/records/4034264), downloaded or imported by the user; not bundled with the installer. The upstream inference [package](https://pypi.org/project/piano-transcription-inference/0.0.6/) declares MIT. The model record is reported as CC BY 4.0; verify the official record and required attribution before bundling. The model is checked for exact size and SHA-256 before loading. |
+| Basic Pitch 0.4.0 | `runtime/Lib/site-packages/basic_pitch/saved_models/` | [Basic Pitch](https://github.com/spotify/basic-pitch) package declares Apache-2.0 and ships its model; its `dist-info` directory contains LICENSE and NOTICE. Check the exact package and model terms before redistribution. |
+| UVR MDX Inst HQ 3 | `omnizart/checkpoints/vocal/UVR-MDX-NET-Inst_HQ_3.onnx` | [Public UVR model release](https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/UVR-MDX-NET-Inst_HQ_3.onnx); SHA-256 `317554b07fe1ea5279a77f2b1520a41ea4b93432560c4ffd08792c30fddf9adc`. Weight-specific redistribution terms were not confirmed from the upstream release. Obtain clarification. The separate inference adaptation is MIT; see `omnizart/desktop/UVR-NOTICES.txt`. |
+| Spleeter 2-stem ONNX | `omnizart/checkpoints/vocal/sherpa-onnx-spleeter-2stems-fp16/` | [sherpa-onnx model download](https://k2-fsa.github.io/sherpa/onnx/source-separation/models.html), derived from [Spleeter](https://github.com/deezer/spleeter), whose code is MIT. Confirm model and conversion redistribution terms before publication. |
+| madmom bundled models | `runtime/Lib/site-packages/madmom/models/` | [madmom licence](https://github.com/CPJKU/madmom/blob/main/LICENSE) states the included model files are CC BY-NC-SA 4.0. Noncommercial distribution is subject to that licence; commercial use requires permission. The package's source code is generally under separate BSD-style terms, subject to exceptions noted upstream. |
+
+The native NNLS Chroma plugin is GPL-2.0-or-later. Its licence and build
+information are in `omnizart/resource/vamp/COPYING` and `BUILD.md`; the
+portable package also includes the plugin and Vamp SDK source trees. Review
+the complete third-party dependency and source obligations for the intended
+distribution before publishing. Imported user models are not included in the
+installer and retain their own terms.
