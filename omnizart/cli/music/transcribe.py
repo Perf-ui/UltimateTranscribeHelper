@@ -25,7 +25,7 @@ music = LazyLoader("music", globals(), "omnizart.music")
 @click.option("--save-accompaniment", is_flag=True, help="Keep the separated accompaniment WAV.")
 @click.option("--include-vocals", is_flag=True, help="Add a separate vocal melody track to the MIDI.")
 @click.option("--separator", type=click.Choice(["spleeter", "uvr", "vocal-ft", "inst-hq4", "inst-hq5"]), default="spleeter", help="Vocal separation model.")
-@click.option("--uvr-device", type=click.Choice(["cpu", "directml"]), default="cpu", help="Device for UVR separation only.")
+@click.option("--uvr-device", type=click.Choice(["cpu", "directml"]), default="cpu", help="Device for audio separation.")
 @click.option("--gpu-index", type=click.IntRange(min=0), default=0, help="DirectML adapter index.")
 @click.option("--compare-midi", type=click.Path(exists=True, dir_okay=False), default=None, help="Compare note onsets with an existing MIDI.")
 @click.option("--score-grid", type=click.Choice(["off", "8", "16", "32"]), default="off", help="Optional score-only rhythm grid.")
@@ -61,7 +61,7 @@ def transcribe(input_audio, model_path, output, onset_th, duration_th, instrumen
         click.echo("Piano-only mode works best with a piano model; Pop and Stream may still produce non-piano notes.", err=True)
     if uvr_device != "cpu" and not (piano_only or (separator == "uvr" and (remove_vocals or include_vocals))):
         raise click.UsageError("DirectML requires piano-only or UVR vocal separation.")
-    if model_path in ("Transkun (piano)", "Transkun V2 Aug", "Pedal Piano"):
+    if model_path in ("Transkun (piano)", "Transkun V2 Aug", "Pedal Piano", "YourMT3", "MuScriptor"):
         if any(value is not None for value in (onset_th, duration_th, instrument_th, frame_th, minimum_note_ms)):
             raise click.UsageError("These thresholds are not available for the selected piano model.")
     elif model_path == "Basic Pitch":
@@ -123,7 +123,7 @@ def transcribe(input_audio, model_path, output, onset_th, duration_th, instrumen
         target = Path(output)
         if target.is_dir():
             target = target / (Path(input_audio).stem + ".mid")
-        elif model_path not in ("Basic Pitch", "Transkun (piano)", "Transkun V2 Aug", "Pedal Piano") and not include_vocals:
+        elif model_path not in ("Basic Pitch", "Transkun (piano)", "Transkun V2 Aug", "Pedal Piano", "YourMT3", "MuScriptor") and not include_vocals:
             if not str(target).endswith(".mid"):
                 target = Path(str(target) + ".mid")
         elif target.suffix.lower() not in (".mid", ".midi"):
@@ -137,13 +137,18 @@ def transcribe(input_audio, model_path, output, onset_th, duration_th, instrumen
             raise click.ClickException(f"Original MIDI was saved, but comparison failed: {exc}") from exc
         click.echo(f"Comparison saved to {comparison} ({count} differences).")
     if musescore:
-        from omnizart.desktop.score_export import export_musicxml
+        from omnizart.desktop.score_export import export_formatted_score
         score = target.with_name(target.stem + ".musicxml")
+        pdf = target.with_name(target.stem + ".pdf")
         try:
-            export_musicxml(target, score, musescore, 0 if score_grid == "off" else int(score_grid))
+            export_formatted_score(target, score, pdf, musescore,
+                                   0 if score_grid == "off" else int(score_grid),
+                                   piano_grand_staff=(piano_only or model_path in
+                                                      ("Piano", "PianoV2", "Transkun (piano)",
+                                                       "Transkun V2 Aug", "Pedal Piano")))
         except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as exc:
             raise click.ClickException(f"Original MIDI was saved, but MusicXML export failed: {exc}") from exc
-        click.echo(f"MusicXML draft saved to {score}. Review the notation in MuseScore.")
+        click.echo(f"Formatted MusicXML saved to {score}; print-ready PDF saved to {pdf}. Review the score before use.")
     if lint_notes:
         from omnizart.desktop.lint import write_report
         report = target.with_name(target.stem + "_review.txt")
@@ -178,6 +183,14 @@ def _transcribe(input_audio, model_path, output, onset_th, duration_th, instrume
     if model_path == "Basic Pitch":
         from omnizart.desktop.basic_pitch import transcribe as basic_pitch_transcribe
         basic_pitch_transcribe(input_audio, output, onset_th, frame_th, minimum_note_ms)
+        return
+    if model_path == "YourMT3":
+        from omnizart.desktop.yourmt3 import transcribe as yourmt3_transcribe
+        yourmt3_transcribe(input_audio, output)
+        return
+    if model_path == "MuScriptor":
+        from omnizart.desktop.muscriptor import transcribe as muscriptor_transcribe
+        muscriptor_transcribe(input_audio, output)
         return
     silence_tensorflow()
     music.app.transcribe(input_audio, model_path, output=output, onset_th=onset_th,

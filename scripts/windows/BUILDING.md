@@ -2,7 +2,7 @@
 
 The installer is a single x64 `.exe`; it installs a multi-file application for
 the current Windows user. It needs no Docker, Python or compiler on the target
-machine. GPU support uses DirectML for UVR separation only. Python and native
+machine. GPU support uses DirectML for UVR and six-stem separation only. Python and native
 build tools are required on the build machine.
 
 **Release gate:** read [the model inventory](../../docs/WINDOWS_MODELS.md).

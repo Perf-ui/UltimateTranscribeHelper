@@ -73,7 +73,11 @@ def separate(source, output_base, device="cpu", gpu_index=0):
     targets = [output_base.with_name(output_base.name + "_" + stem + ".wav") for stem in STEMS]
     if any(path.exists() for path in targets):
         raise FileExistsError("A stem output already exists; choose a new output name.")
-    audio, rate = sf.read(str(source), dtype="float32", always_2d=True)
+    try:
+        audio, rate = sf.read(str(source), dtype="float32", always_2d=True)
+    except (OSError, RuntimeError, ValueError):
+        decoded, rate = librosa.load(str(source), sr=None, mono=False, dtype="float32")
+        audio = decoded[:, None] if decoded.ndim == 1 else decoded.T
     if not len(audio):
         raise ValueError("The input audio contains no samples.")
     if audio.shape[1] == 1:

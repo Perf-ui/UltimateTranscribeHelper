@@ -32,7 +32,7 @@ FIELD = "#252d40"
 CUSTOM_MODEL = "Imported Omnizart model"
 RESULT_SUFFIXES = (".mid", ".midi", ".csv", "_beat.csv", "_down_beat.csv", "_f0.csv",
                    "_trans.wav", "_accompaniment.wav", "_smoothed.mid", "_review.txt", "_comparison.txt", ".musicxml", "_drums.wav",
-                   "_bass.wav", "_other.wav", "_vocals.wav", "_guitar.wav", "_piano.wav")
+                   "_bass.wav", "_other.wav", "_vocals.wav", "_guitar.wav", "_piano.wav", ".pdf")
 
 SETTING_HELP = {
     "onset": "Controls how strong a note's start must be. Lower values may detect quieter notes, "
@@ -220,7 +220,7 @@ def remember_imported_model(path):
 
 def music_options(values, model="Piano"):
     """Validate optional model thresholds and produce CLI arguments."""
-    if model in ("Transkun (piano)", "Transkun V2 Aug", "Pedal Piano"):
+    if model in ("Transkun (piano)", "Transkun V2 Aug", "Pedal Piano", "YourMT3", "MuScriptor"):
         return []
     result = []
     specs = (("onset", "Note onset", 1, "--onset-th"),
@@ -328,7 +328,7 @@ class Application(ttk.Frame):
         modes.grid(row=2, column=0, sticky="ew")
         modes.bind("<<ComboboxSelected>>", self.mode_changed)
         self.model_picker = ttk.Combobox(card, textvariable=self.music_model,
-                                        values=["Piano", "PianoV2", "Pop", "Stream", "Basic Pitch", "Transkun (piano)", "Transkun V2 Aug", "Pedal Piano", *self.custom_models, CUSTOM_MODEL],
+                                        values=["Piano", "PianoV2", "Pop", "Stream", "Basic Pitch", "Transkun (piano)", "Transkun V2 Aug", "Pedal Piano", "YourMT3", "MuScriptor", *self.custom_models, CUSTOM_MODEL],
                                         state="readonly", style="App.TCombobox")
         self.model_picker.grid(row=2, column=1, sticky="ew", padx=(14, 0))
         self.model_picker.bind("<<ComboboxSelected>>", self.mode_changed)
@@ -413,11 +413,11 @@ class Application(ttk.Frame):
         self.lint_option.grid(row=16, column=0, sticky="w", pady=(10, 0))
         Tooltip(self.lint_option, "Writes a separate text report of possible short or overlapping notes. Suggestions can be intentional; MIDI is unchanged.")
 
-        self.score_option = ttk.Checkbutton(card, text="Export MusicXML using MuseScore", variable=self.musescore_export, style="App.TCheckbutton")
+        self.score_option = ttk.Checkbutton(card, text="Format score and export MusicXML + PDF", variable=self.musescore_export, style="App.TCheckbutton")
         self.score_option.grid(row=17, column=0, sticky="w", pady=(10, 0))
         self.score_button = ttk.Button(card, text="Choose MuseScore...", style="Link.TButton", command=self.choose_musescore)
         self.score_button.grid(row=17, column=1, sticky="w", padx=(14, 0), pady=(10, 0))
-        Tooltip(self.score_option, "Creates a draft score using your MuseScore installation. Review timing, notation, pedal and dynamics; the original MIDI is kept.")
+        Tooltip(self.score_option, "Converts the MIDI, applies standard A4 page spacing and piano grand-staff layout when appropriate, then engraves a PDF with MuseScore. The original MIDI is kept; review notation and timing.")
         Tooltip(self.score_button, "Select MuseScore4.exe from your MuseScore installation.")
 
         self.compare_option = ttk.Checkbutton(card, text="Compare with another MIDI", variable=self.compare_enabled, style="App.TCheckbutton")
@@ -560,7 +560,7 @@ class Application(ttk.Frame):
             self.short_option.configure(state="normal")
             self.update_smoothing_controls()
             self.update_separation_controls()
-            is_fixed_piano = self.music_model.get() in ("Transkun (piano)", "Transkun V2 Aug", "Pedal Piano")
+            is_fixed_piano = self.music_model.get() in ("Transkun (piano)", "Transkun V2 Aug", "Pedal Piano", "YourMT3", "MuScriptor")
             self.advanced_button.configure(state="disabled" if is_fixed_piano else "normal")
             if is_fixed_piano:
                 self.advanced.grid_remove()
@@ -574,6 +574,8 @@ class Application(ttk.Frame):
                      "Transkun (piano)": "A piano-specific model. Uses CPU and may take longer on full songs.",
                      "Transkun V2 Aug": "Alternative Transkun piano model. Select Models & import to download or import it.",
                      "Pedal Piano": "Piano model with sustain-pedal estimates. Download or import it in Models & import.",
+                     "YourMT3": "Multi-instrument transcription model. Install the optional PyTorch backend; weights download on first use.",
+                     "MuScriptor": "Multi-instrument transcription with MusicXML-ready output. Requires optional install and Hugging Face model access.",
                      CUSTOM_MODEL: (f"Imported checkpoint: {Path(self.custom_model_path).name}"
                                     if self.custom_model_path else
                                     "Select a compatible Omnizart checkpoint in Models & import.")}
@@ -704,14 +706,19 @@ class Application(ttk.Frame):
         dialog = tk.Toplevel(self.master)
         dialog.title("Models & import")
         dialog.configure(bg=BG)
-        dialog.geometry("650x640")
+        dialog.geometry("650x740")
         dialog.transient(self.master)
         frame = ttk.Frame(dialog, style="Root.TFrame", padding=24)
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text="Models & import", style="Title.TLabel").pack(anchor="w")
         ttk.Label(frame, text="Included: Piano, PianoV2, Pop, Stream, Basic Pitch and Transkun.\n"
-                  "Choose a model in the drop-down. Select Transkun V2 Aug to manage its optional model.",
+                  "YourMT3 and MuScriptor are optional local installs. Select them in the model drop-down after setup.\n"
+                  "Select Transkun V2 Aug to manage its optional piano checkpoint.",
                   style="Subtitle.TLabel", wraplength=555, justify="left").pack(anchor="w", pady=(12, 16))
+        ttk.Label(frame, text="YourMT3: pip install \"mt3-infer[torch] @ git+https://github.com/openmirlab/mt3-infer.git\".\n"
+                  "MuScriptor: pip install muscriptor, then sign in to Hugging Face and accept the model's CC BY-NC 4.0 terms.\n"
+                  "MuScriptor weights are restricted to non-commercial use. See docs/OPTIONAL_MODELS.md for setup details.",
+                  style="Subtitle.TLabel", wraplength=555, justify="left").pack(anchor="w", pady=(0, 12))
         ttk.Label(frame, text="Import a complete Omnizart music checkpoint folder containing configurations.yaml, "
                   "saved_model.pb and its variables. The release download supplies weights only; it does not include "
                   "the other files. Transkun and Basic Pitch models use different formats and cannot be imported here.",
@@ -776,6 +783,10 @@ class Application(ttk.Frame):
                    command=lambda: webbrowser.open("https://github.com/Music-and-Culture-Technology-Lab/omnizart/releases/tag/checkpoints-20211001")).pack(anchor="w")
         ttk.Button(frame, text="Open Basic Pitch project page ↗", style="RootLink.TButton",
                    command=lambda: webbrowser.open("https://github.com/spotify/basic-pitch")).pack(anchor="w")
+        ttk.Button(frame, text="Open YourMT3 project page ↗", style="RootLink.TButton",
+                   command=lambda: webbrowser.open("https://github.com/openmirlab/mt3-infer")).pack(anchor="w")
+        ttk.Button(frame, text="Open MuScriptor model page ↗", style="RootLink.TButton",
+                   command=lambda: webbrowser.open("https://github.com/muscriptor/muscriptor")).pack(anchor="w")
         ttk.Button(frame, text="Open Transkun project page ↗", style="RootLink.TButton",
                    command=lambda: webbrowser.open("https://github.com/Yujia-Yan/Transkun")).pack(anchor="w")
 
@@ -1026,6 +1037,15 @@ class Application(ttk.Frame):
             return
         selected_model = self.music_model.get()
         imported_path = self.custom_models.get(selected_model, self.custom_model_path if selected_model == CUSTOM_MODEL else None)
+        if mode == "music" and selected_model in ("YourMT3", "MuScriptor"):
+            import importlib.util
+            import shutil
+            module = "mt3_infer" if selected_model == "YourMT3" else "muscriptor"
+            executable = "mt3-infer" if selected_model == "YourMT3" else "muscriptor"
+            if importlib.util.find_spec(module) is None and shutil.which(executable) is None:
+                messagebox.showerror("Optional model is not installed",
+                                     f"Set up {selected_model} using docs/OPTIONAL_MODELS.md, then restart Omnizart.")
+                return
         if mode == "music" and (selected_model == CUSTOM_MODEL or selected_model in self.custom_models) and (
                 not imported_path or not validate_model_folder(imported_path)):
             messagebox.showerror("Model", "Use Models & import to select a complete Omnizart music checkpoint.")
