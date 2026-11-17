@@ -2,8 +2,8 @@ Omnizart for Windows
 
 Extract the complete archive to a folder, then double-click Omnizart.vbs.
 Choose a transcription type and an input file, select an output folder, and
-click Transcribe. Each run creates a new folder in your selected output folder;
-existing output folders are left in place.
+click Transcribe. Results for the same input name share a folder in your chosen
+output folder; new runs use numbered file names and do not replace earlier ones.
 
 Beat tracking accepts MIDI input. The other modes accept audio input. Vocal
 pitch contour produces CSV and WAV files; the other modes produce MIDI and,

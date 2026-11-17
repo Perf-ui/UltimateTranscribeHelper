@@ -78,7 +78,9 @@ def transcribe(input_audio, model_path, output, onset_th, duration_th, instrumen
             if save_accompaniment:
                 target = Path(output)
                 folder = target if target.is_dir() else target.parent
-                saved = folder / (Path(input_audio).stem + "_accompaniment.wav")
+                name = Path(input_audio).stem if target.is_dir() else (
+                    target.stem if target.suffix.lower() in (".mid", ".midi") else target.name)
+                saved = folder / (name + "_accompaniment.wav")
                 try:
                     with separated.open("rb") as source_file, saved.open("xb") as destination_file:
                         shutil.copyfileobj(source_file, destination_file)

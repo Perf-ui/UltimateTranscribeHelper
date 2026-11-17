@@ -7,12 +7,48 @@ from unittest.mock import patch
 
 import mido
 
-from omnizart.desktop.app import (midi_note_count, music_options, validate_model_folder,
+from omnizart.desktop.app import (midi_note_count, music_options, validate_model_folder, reserve_result_name,
                                   remember_imported_model, read_imported_model)
 from omnizart.desktop.worker import _HideTensorFlowDeprecations
 
 
 class DesktopResultTests(unittest.TestCase):
+    def test_repeated_runs_reserve_distinct_names_in_one_folder(self):
+        with tempfile.TemporaryDirectory() as folder:
+            directory = Path(folder)
+            (directory / "song.mid").write_bytes(b"old")
+            (directory / "song_2_f0.csv").write_bytes(b"old contour")
+            first, lock = reserve_result_name(directory, "song")
+            self.assertEqual(first.name, "song_3")
+            second, second_lock = reserve_result_name(directory, "song")
+            self.assertEqual(second.name, "song_4")
+            lock.unlink()
+            second_lock.unlink()
+            self.assertEqual((directory / "song.mid").read_bytes(), b"old")
+            self.assertEqual((directory / "song_2_f0.csv").read_bytes(), b"old contour")
+            (directory / "song_3").mkdir()
+            third, third_lock = reserve_result_name(directory, "song")
+            self.assertEqual(third.name, "song_4")
+            third_lock.unlink()
+
+    def test_note_count_is_for_current_run_only(self):
+        with tempfile.TemporaryDirectory() as folder:
+            directory = Path(folder)
+            midi = mido.MidiFile()
+            midi.tracks.append(mido.MidiTrack([mido.Message("note_on", note=60, velocity=80)]))
+            midi.save(directory / "song.mid")
+            empty = mido.MidiFile()
+            empty.tracks.append(mido.MidiTrack())
+            empty.save(directory / "song_2.mid")
+            self.assertEqual(midi_note_count(directory, directory / "song_2"), 0)
+            self.assertIsNone(midi_note_count(directory, directory / "song_3"))
+
+    def test_midi_like_stems_do_not_change_backend_output_path(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base, lock = reserve_result_name(folder, "mix.mid")
+            self.assertEqual(base.name, "mix.mid_result")
+            lock.unlink()
+
     def test_import_requires_a_complete_checkpoint(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

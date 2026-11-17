@@ -28,6 +28,8 @@ MUTED = "#aab4c8"
 ACCENT = "#a49aff"
 FIELD = "#252d40"
 CUSTOM_MODEL = "Imported Omnizart model"
+RESULT_SUFFIXES = (".mid", ".midi", ".csv", "_beat.csv", "_down_beat.csv", "_f0.csv",
+                   "_trans.wav", "_accompaniment.wav", "_smoothed.mid")
 
 SETTING_HELP = {
     "onset": "Controls how strong a note's start must be. Lower values may detect quieter notes, "
@@ -81,10 +83,12 @@ class Tooltip:
             self.window = None
 
 
-def midi_note_count(directory):
+def midi_note_count(directory, output_base=None):
     """Count MIDI note-on events, returning None when no MIDI was produced."""
     import mido
-    paths = list(directory.glob("*.mid")) + list(directory.glob("*.midi"))
+    paths = ([Path(str(output_base) + ".mid"), Path(str(output_base) + ".midi")]
+             if output_base is not None else list(directory.glob("*.mid")) + list(directory.glob("*.midi")))
+    paths = [path for path in paths if path.is_file()]
     paths = [path for path in paths if not (path.stem.endswith("_smoothed") and
              (path.with_name(path.stem[:-9] + ".mid").exists() or
               path.with_name(path.stem[:-9] + ".midi").exists()))]
@@ -92,6 +96,31 @@ def midi_note_count(directory):
         return None
     return sum(1 for path in paths for track in mido.MidiFile(path).tracks
                for message in track if message.type == "note_on" and message.velocity > 0)
+
+
+def reserve_result_name(folder, source_stem):
+    """Reserve a result basename while retaining all files from earlier runs."""
+    folder = Path(folder)
+    if source_stem.lower().endswith((".mid", ".midi")):
+        source_stem += "_result"
+    for number in range(1, 10001):
+        name = source_stem + ("" if number == 1 else f"_{number}")
+        base = folder / name
+        lock = folder / ("." + name + ".omnizart.lock")
+        try:
+            with lock.open("x", encoding="utf-8") as stream:
+                stream.write("Omnizart result reservation\n")
+        except FileExistsError:
+            continue
+        try:
+            if base.exists() or any((folder / (name + ending)).exists() for ending in RESULT_SUFFIXES):
+                lock.unlink()
+                continue
+            return base, lock
+        except Exception:
+            lock.unlink(missing_ok=True)
+            raise
+    raise OSError("Too many results with this name in the output folder.")
 
 
 def validate_model_folder(folder):
@@ -221,6 +250,8 @@ class Application(ttk.Frame):
         self.running = False
         self.active_mode = None
         self.output_folder = None
+        self.output_base = None
+        self.output_lock = None
         self.advanced_open = False
         self.log_open = False
 
@@ -728,22 +759,15 @@ class Application(ttk.Frame):
         except ValueError as exc:
             messagebox.showerror("Advanced settings", str(exc))
             return
-        for number in range(10000):
-            suffix = "" if number == 0 else f"_{number + 1}"
-            target = destination / (source.stem + "_omnizart" + suffix)
-            try:
-                target.mkdir()
-                break
-            except FileExistsError:
-                continue
-            except OSError as exc:
-                messagebox.showerror("Cannot create output folder", str(exc))
-                return
-        else:
-            messagebox.showerror("Cannot create output folder", "Too many output folders with this name.")
+        target = destination / (source.stem + "_omnizart")
+        try:
+            target.mkdir(exist_ok=True)
+            output_base, output_lock = reserve_result_name(target, source.stem)
+        except OSError as exc:
+            messagebox.showerror("Cannot prepare output", str(exc))
             return
         cmd = [sys.executable, "-u", "-m", "omnizart.desktop.worker", mode,
-               "transcribe", str(source.resolve()), "--output", str(target.resolve())]
+               "transcribe", str(source.resolve()), "--output", str(output_base.resolve())]
         if mode == "music":
             model = self.custom_model_path if self.music_model.get() == CUSTOM_MODEL else self.music_model.get()
             cmd.extend(["--model-path", model, *options])
@@ -769,6 +793,8 @@ class Application(ttk.Frame):
         self.running = True
         self.active_mode = mode
         self.output_folder = target
+        self.output_base = output_base
+        self.output_lock = output_lock
         self.status.set("Transcribing on your computer. This can take several minutes.")
         self.progress.grid()
         self.progress.start(12)
@@ -796,6 +822,12 @@ class Application(ttk.Frame):
                     self.log.configure(state="disabled")
                     continue
                 self.process = None
+                if self.output_lock:
+                    try:
+                        self.output_lock.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                    self.output_lock = None
                 self.running = False
                 self.progress.stop()
                 self.progress.grid_remove()
@@ -805,14 +837,17 @@ class Application(ttk.Frame):
                 if kind == "error":
                     self.status.set("Could not start transcription.")
                     messagebox.showerror("Transcription failed", value)
-                elif value[0] == 0 and any(value[1].iterdir()):
+                elif value[0] == 0 and self.output_base and any(
+                        Path(str(self.output_base) + suffix).is_file() for suffix in RESULT_SUFFIXES):
                     try:
-                        notes = midi_note_count(value[1])
+                        notes = midi_note_count(value[1], self.output_base)
                     except (OSError, ValueError, EOFError):
                         self.status.set("Finished, but the MIDI could not be read. Open the results folder to inspect it.")
                     else:
                         if notes == 0:
                             self.status.set("No notes detected. Try Piano for solo piano, or adjust the thresholds.")
+                        elif notes is None and self.active_mode != "vocal-contour":
+                            self.status.set("Finished without a MIDI file. Open details to inspect the result.")
                         elif notes is None:
                             self.status.set("Finished. Your results are ready.")
                         else:

@@ -9,6 +9,22 @@ from omnizart.cli.music.transcribe import transcribe
 
 
 class SeparationCliTests(unittest.TestCase):
+    def test_accompaniment_uses_the_explicit_run_name(self):
+        with TemporaryDirectory() as directory:
+            folder = Path(directory)
+            audio = folder / "song.mp3"
+            audio.touch()
+            (folder / "song_accompaniment.wav").write_bytes(b"keep")
+            def create_stem(source, destination):
+                destination.write_bytes(b"second")
+            with patch("omnizart.desktop.separation.remove_vocals", side_effect=create_stem), \
+                    patch("omnizart.cli.music.transcribe._transcribe"):
+                result = CliRunner().invoke(transcribe, [str(audio), "--remove-vocals", "--save-accompaniment",
+                                                       "--output", str(folder / "song_2")])
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertEqual((folder / "song_accompaniment.wav").read_bytes(), b"keep")
+            self.assertEqual((folder / "song_2_accompaniment.wav").read_bytes(), b"second")
+
     def test_smoothing_saves_a_second_midi(self):
         import mido
         with TemporaryDirectory() as directory:
