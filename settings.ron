@@ -1,0 +1,61 @@
+(
+    waterfall: V1(
+        animation_speed: 400.0,
+        animation_offset: 0.0,
+        note_labels: false,
+    ),
+    playback: V1(
+        speed_multiplier: 1.0,
+    ),
+    history: V1(
+        last_opened_song: None,
+    ),
+    synth: V1(
+        soundfont_path: None,
+        audio_gain: 0.2,
+    ),
+    keyboard_layout: V1(
+        range: (21, 108),
+    ),
+    devices: V1(
+        output: Some("Buildin Synth"),
+        input: None,
+        separate_channels: false,
+    ),
+    appearance: V1(
+        color_schema: [
+            (
+                base: (210, 89, 222),
+                dark: (125, 69, 134),
+            ),
+            (
+                base: (93, 188, 255),
+                dark: (48, 124, 255),
+            ),
+            (
+                base: (255, 126, 51),
+                dark: (192, 73, 0),
+            ),
+            (
+                base: (51, 255, 102),
+                dark: (0, 168, 2),
+            ),
+            (
+                base: (255, 51, 129),
+                dark: (192, 0, 77),
+            ),
+            (
+                base: (210, 89, 222),
+                dark: (125, 69, 134),
+            ),
+        ],
+        background_color: (0, 0, 0),
+        vertical_guidelines: true,
+        horizontal_guidelines: true,
+        glow: true,
+        chord_identifier: false,
+    ),
+    pc_keyboard: V1(
+        octave_shift: 5,
+    ),
+)

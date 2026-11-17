@@ -254,6 +254,7 @@ class Application(ttk.Frame):
         self.custom_model_path = read_imported_model()
         self.custom_models = {imported_model_label(path): path for path in read_imported_models()}
         self.remove_vocals = tk.BooleanVar(value=False)
+        self.piano_only = tk.BooleanVar(value=False)
         self.include_vocals = tk.BooleanVar(value=False)
         self.separator_model = tk.StringVar(value="UVR MDX (recommended)")
         self.use_gpu = tk.BooleanVar(value=False)
@@ -346,8 +347,12 @@ class Application(ttk.Frame):
         self.keep_option.grid(row=8, column=1, sticky="w", padx=(14, 0), pady=(16, 0))
         Tooltip(self.separation_option, "Uses the included CPU model to separate vocals. It can help with piano and voice, "
                 "but can also remove some instruments or introduce artifacts. Compare both results.")
-        ttk.Label(card, text="Optional for piano + voice; may also change the piano sound.",
-                  style="CardHint.TLabel").grid(row=9, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self.piano_only_option = ttk.Checkbutton(card, text="Isolate piano before transcribing (six-stem model)",
+                                                variable=self.piano_only, style="App.TCheckbutton",
+                                                command=self.update_separation_controls)
+        self.piano_only_option.grid(row=9, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        Tooltip(self.piano_only_option, "Runs the optional six-stem HT-Demucs model, then transcribes only its piano stem. "
+                "Download it in Models & import. Separation can introduce artifacts.")
         self.vocal_option = ttk.Checkbutton(card, text="Add a separate vocal track to MIDI",
                                             variable=self.include_vocals, style="App.TCheckbutton",
                                             command=self.update_vocal_controls)
@@ -541,6 +546,7 @@ class Application(ttk.Frame):
             self.model_picker.configure(state="readonly")
             self.models_button.configure(state="normal")
             self.separation_option.configure(state="normal")
+            self.piano_only_option.configure(state="normal")
             self.vocal_option.configure(state="normal")
             self.separator_picker.configure(state="readonly")
             self.separation_models_button.configure(state="normal")
@@ -606,6 +612,7 @@ class Application(ttk.Frame):
             self.model_picker.configure(state="disabled")
             self.models_button.configure(state="normal" if mode == "stems" else "disabled")
             self.separation_option.configure(state="disabled")
+            self.piano_only_option.configure(state="disabled")
             self.vocal_option.configure(state="disabled")
             self.separator_picker.configure(state="disabled")
             self.separation_models_button.configure(state="disabled")
@@ -646,10 +653,11 @@ class Application(ttk.Frame):
                (self.remove_vocals.get() or self.include_vocals.get()) and
                self.separator_model.get() == "UVR MDX (recommended)")
         stems = self.mode.get() == "Separate stems (audio)"
-        self.gpu_option.configure(state="normal" if uvr or stems else "disabled",
+        piano = self.mode.get() == "Piano and instruments" and self.piano_only.get()
+        self.gpu_option.configure(state="normal" if uvr or stems or piano else "disabled",
                                   text="Use GPU for separation (DirectML)" if stems else
                                        "Use GPU for UVR separation (DirectML)")
-        self.gpu_entry.configure(state="normal" if (uvr or stems) and self.use_gpu.get() else "disabled")
+        self.gpu_entry.configure(state="normal" if (uvr or stems or piano) and self.use_gpu.get() else "disabled")
 
     def update_vocal_controls(self):
         if self.include_vocals.get():
@@ -685,6 +693,9 @@ class Application(ttk.Frame):
 
     def show_models(self):
         if self.mode.get() == "Separate stems (audio)":
+            self.show_six_stem_model()
+            return
+        if self.mode.get() == "Piano and instruments" and self.piano_only.get():
             self.show_six_stem_model()
             return
         if self.mode.get() == "Piano and instruments" and self.music_model.get() == "Transkun V2 Aug":
@@ -1049,6 +1060,11 @@ class Application(ttk.Frame):
             if not available:
                 messagebox.showerror("Six-stem model", "Open Models & import to download or import the six-stem model.")
                 return
+        if mode == "music" and self.piano_only.get():
+            from omnizart.desktop.six_stems import model_path, verify_model
+            if not verify_model(model_path()):
+                messagebox.showerror("Six-stem model", "Open Models & import to download or import the six-stem model.")
+                return
         optional_separators = {"UVR Vocal FT (CPU)": "vocal-ft", "UVR Instrumental HQ4 (CPU)": "inst-hq4", "UVR Instrumental HQ5 (CPU)": "inst-hq5"}
         if mode == "music" and (self.remove_vocals.get() or self.include_vocals.get()) and self.separator_model.get() in optional_separators:
             from omnizart.desktop.sherpa_uvr import model_path
@@ -1060,7 +1076,7 @@ class Application(ttk.Frame):
             if self.music_model.get() not in ("Pop", "Stream", "Basic Pitch", CUSTOM_MODEL) and self.music_model.get() not in self.custom_models:
                 values["instrument"] = ""
             options = music_options(values, self.music_model.get()) if mode == "music" else []
-            gpu_enabled = (self.use_gpu.get() and (mode == "stems" or
+            gpu_enabled = (self.use_gpu.get() and (mode == "stems" or (mode == "music" and self.piano_only.get()) or
                            (mode == "music" and (self.remove_vocals.get() or self.include_vocals.get()) and
                             self.separator_model.get() == "UVR MDX (recommended)")))
             gpu_index = self.gpu_index.get().strip()
@@ -1101,6 +1117,10 @@ class Application(ttk.Frame):
         if mode == "music":
             model = imported_path if imported_path is not None else self.music_model.get()
             cmd.extend(["--model-path", model, *options])
+            if self.piano_only.get():
+                cmd.append("--piano-only")
+                if gpu_enabled:
+                    cmd.extend(["--uvr-device", "directml", "--gpu-index", gpu_index])
             if self.compare_enabled.get():
                 cmd.extend(["--compare-midi", self.compare_path.get()])
             if self.musescore_export.get():
@@ -1119,7 +1139,7 @@ class Application(ttk.Frame):
                 separator = {"UVR MDX (recommended)": "uvr", "UVR Vocal FT (CPU)": "vocal-ft",
                              "UVR Instrumental HQ4 (CPU)": "inst-hq4", "UVR Instrumental HQ5 (CPU)": "inst-hq5", "Spleeter (legacy)": "spleeter"}[self.separator_model.get()]
                 cmd.extend(["--separator", separator])
-                if gpu_enabled:
+                if gpu_enabled and not self.piano_only.get():
                     cmd.extend(["--uvr-device", "directml", "--gpu-index", gpu_index])
             if self.remove_vocals.get():
                 cmd.append("--remove-vocals")

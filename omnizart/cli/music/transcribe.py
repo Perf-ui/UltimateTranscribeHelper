@@ -21,6 +21,7 @@ music = LazyLoader("music", globals(), "omnizart.music")
 @click.option("--frame-th", type=click.FloatRange(0, 1), default=None, help="Basic Pitch frame threshold.")
 @click.option("--minimum-note-ms", type=click.FloatRange(0, 2000), default=None, help="Basic Pitch minimum note length in milliseconds.")
 @click.option("--remove-vocals", is_flag=True, help="Separate vocals before instrument transcription.")
+@click.option("--piano-only", is_flag=True, help="Separate a piano stem before transcription (requires the six-stem model).")
 @click.option("--save-accompaniment", is_flag=True, help="Keep the separated accompaniment WAV.")
 @click.option("--include-vocals", is_flag=True, help="Add a separate vocal melody track to the MIDI.")
 @click.option("--separator", type=click.Choice(["spleeter", "uvr", "vocal-ft", "inst-hq4", "inst-hq5"]), default="spleeter", help="Vocal separation model.")
@@ -34,7 +35,7 @@ music = LazyLoader("music", globals(), "omnizart.music")
 @click.option("--smooth-gap-ms", type=click.FloatRange(0, 200), default=30, help="Maximum gap to join, in milliseconds.")
 @click.option("--remove-short-ms", type=click.FloatRange(0, 200), default=0, help="Also remove notes shorter than this duration; 0 disables.")
 def transcribe(input_audio, model_path, output, onset_th, duration_th, instrument_th, frame_th, minimum_note_ms,
-               remove_vocals, save_accompaniment, include_vocals, separator, uvr_device, gpu_index,
+               remove_vocals, piano_only, save_accompaniment, include_vocals, separator, uvr_device, gpu_index,
                compare_midi, score_grid, musescore, lint_notes, smooth_notes, smooth_gap_ms, remove_short_ms):
     """Transcribe a single audio and output as a MIDI file.
 
@@ -54,8 +55,12 @@ def transcribe(input_audio, model_path, output, onset_th, duration_th, instrumen
         raise click.UsageError("--score-grid requires --musescore.")
     if save_accompaniment and not remove_vocals:
         raise click.UsageError("--save-accompaniment requires --remove-vocals.")
-    if uvr_device != "cpu" and (separator != "uvr" or not (remove_vocals or include_vocals)):
-        raise click.UsageError("DirectML applies only to UVR vocal separation.")
+    if piano_only and (remove_vocals or include_vocals):
+        raise click.UsageError("--piano-only cannot be combined with --remove-vocals or --include-vocals.")
+    if piano_only and model_path in ("Pop", "Stream"):
+        click.echo("Piano-only mode works best with a piano model; Pop and Stream may still produce non-piano notes.", err=True)
+    if uvr_device != "cpu" and not (piano_only or (separator == "uvr" and (remove_vocals or include_vocals))):
+        raise click.UsageError("DirectML requires piano-only or UVR vocal separation.")
     if model_path in ("Transkun (piano)", "Transkun V2 Aug", "Pedal Piano"):
         if any(value is not None for value in (onset_th, duration_th, instrument_th, frame_th, minimum_note_ms)):
             raise click.UsageError("These thresholds are not available for the selected piano model.")
@@ -66,7 +71,14 @@ def transcribe(input_audio, model_path, output, onset_th, duration_th, instrumen
             raise click.UsageError("Duration and instrument thresholds apply to Omnizart models only.")
     elif frame_th is not None or minimum_note_ms is not None:
         raise click.UsageError("Frame threshold and minimum note length apply to Basic Pitch only.")
-    if remove_vocals or include_vocals:
+    if piano_only:
+        from omnizart.desktop.six_stems import separate as separate_stems
+        with TemporaryDirectory(prefix="omnizart-piano-") as temporary:
+            base = Path(temporary) / "separated"
+            separate_stems(input_audio, base, device=uvr_device, gpu_index=gpu_index)
+            _transcribe(str(base.with_name(base.name + "_piano.wav")), model_path, output,
+                        onset_th, duration_th, instrument_th, frame_th, minimum_note_ms)
+    elif remove_vocals or include_vocals:
         from omnizart.desktop.separation import remove_vocals as separate, separate_stems
         with TemporaryDirectory(prefix="omnizart-separation-") as temporary:
             separated = Path(temporary) / (Path(input_audio).stem + ".wav")
