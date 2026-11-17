@@ -1,0 +1,851 @@
+"""Windows desktop interface for the Omnizart transcription tools."""
+import math
+import json
+import os
+from pathlib import Path
+import queue
+import subprocess
+import sys
+import threading
+import webbrowser
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
+
+
+MODES = {
+    "Piano and instruments": ("music", "Audio", "MIDI"),
+    "Drums": ("drum", "Audio", "MIDI"),
+    "Chords": ("chord", "Audio", "MIDI + CSV"),
+    "Vocal notes": ("vocal", "Audio", "MIDI + CSV"),
+    "Vocal pitch contour": ("vocal-contour", "Audio", "CSV + WAV"),
+    "Beats from MIDI": ("beat", "MIDI", "MIDI + CSV"),
+}
+
+BG = "#101421"
+PANEL = "#1a2030"
+TEXT = "#f1f3fa"
+MUTED = "#aab4c8"
+ACCENT = "#a49aff"
+FIELD = "#252d40"
+CUSTOM_MODEL = "Imported Omnizart model"
+
+SETTING_HELP = {
+    "onset": "Controls how strong a note's start must be. Lower values may detect quieter notes, "
+             "but can also add false notes. This is a model threshold, not a time in seconds.",
+    "duration": "Controls how strongly a note must remain active. Lower values may preserve longer or "
+                "quieter notes, but can merge notes or add noise. This is not a duration in seconds.",
+    "instrument": "Filters instrument tracks by model confidence. Lower values allow weaker tracks through, "
+                  "but can add incorrect instruments. Applies only to Pop and Stream.",
+}
+BP_SETTING_HELP = {
+    "onset": "Basic Pitch onset confidence from 0 to 1. Lower values can recover quiet notes but may add false ones. Default: 0.5.",
+    "duration": "Basic Pitch frame confidence from 0 to 1. Lower values may sustain more notes, with more noise. Default: 0.3.",
+    "instrument": "Discard Basic Pitch notes shorter than this length in milliseconds. Default: 127.7 ms.",
+}
+
+
+class Tooltip:
+    """Show a short explanation when the pointer rests over a control."""
+    def __init__(self, widget, text):
+        self.widget, self.text = widget, text
+        self.timer = None
+        self.window = None
+        widget.bind("<Enter>", self.schedule, add="+")
+        widget.bind("<Leave>", self.hide, add="+")
+        widget.bind("<Destroy>", self.hide, add="+")
+
+    def schedule(self, event=None):
+        self.hide()
+        self.timer = self.widget.after(500, self.show)
+
+    def show(self):
+        self.timer = None
+        self.window = tk.Toplevel(self.widget)
+        self.window.wm_overrideredirect(True)
+        label = tk.Label(self.window, text=self.text, justify="left", wraplength=310, bg="#30394f", fg=TEXT,
+                         font=("Segoe UI", 9), padx=12, pady=9, relief="solid", borderwidth=1)
+        label.pack()
+        self.window.update_idletasks()
+        x = min(self.widget.winfo_rootx(), self.widget.winfo_screenwidth() - self.window.winfo_reqwidth() - 10)
+        below = self.widget.winfo_rooty() + self.widget.winfo_height() + 6
+        y = below if below + self.window.winfo_reqheight() < self.widget.winfo_screenheight() else (
+            self.widget.winfo_rooty() - self.window.winfo_reqheight() - 6)
+        self.window.geometry(f"+{max(0, x)}+{max(0, y)}")
+
+    def hide(self, event=None):
+        if self.timer is not None:
+            self.widget.after_cancel(self.timer)
+            self.timer = None
+        if self.window is not None:
+            self.window.destroy()
+            self.window = None
+
+
+def midi_note_count(directory):
+    """Count MIDI note-on events, returning None when no MIDI was produced."""
+    import mido
+    paths = list(directory.glob("*.mid")) + list(directory.glob("*.midi"))
+    paths = [path for path in paths if not (path.stem.endswith("_smoothed") and
+             (path.with_name(path.stem[:-9] + ".mid").exists() or
+              path.with_name(path.stem[:-9] + ".midi").exists()))]
+    if not paths:
+        return None
+    return sum(1 for path in paths for track in mido.MidiFile(path).tracks
+               for message in track if message.type == "note_on" and message.velocity > 0)
+
+
+def validate_model_folder(folder):
+    """Check for a complete Omnizart TensorFlow SavedModel checkpoint."""
+    folder = Path(folder)
+    variables = folder / "variables"
+    return (folder.is_dir() and (folder / "configurations.yaml").is_file() and
+            (folder / "saved_model.pb").is_file() and (variables / "variables.index").is_file() and
+            any(variables.glob("variables.data-*")))
+
+
+def model_settings_path():
+    return Path(os.environ.get("LOCALAPPDATA", str(Path.home() / ".local" / "share"))) / "Omnizart" / "custom-model.json"
+
+
+def folder_settings_path():
+    return model_settings_path().with_name("folders.json")
+
+
+def read_folders():
+    try:
+        data = json.loads(folder_settings_path().read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return {}
+        return {key: value for key in ("input", "output")
+                if isinstance((value := data.get(key)), str)}
+    except (OSError, ValueError):
+        return {}
+
+
+def remember_folders(input_folder=None, output_folder=None):
+    settings = folder_settings_path()
+    folders = read_folders()
+    if input_folder is not None:
+        folders["input"] = str(input_folder)
+    if output_folder is not None:
+        folders["output"] = str(output_folder)
+    settings.parent.mkdir(parents=True, exist_ok=True)
+    temporary = settings.with_suffix(".tmp")
+    try:
+        temporary.write_text(json.dumps(folders), encoding="utf-8")
+        temporary.replace(settings)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def read_imported_model():
+    try:
+        data = json.loads(model_settings_path().read_text(encoding="utf-8"))
+        path = data.get("checkpoint")
+        return path if isinstance(path, str) and validate_model_folder(path) else None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def remember_imported_model(path):
+    settings = model_settings_path()
+    settings.parent.mkdir(parents=True, exist_ok=True)
+    temporary = settings.with_suffix(".tmp")
+    try:
+        temporary.write_text(json.dumps({"checkpoint": str(path)}), encoding="utf-8")
+        temporary.replace(settings)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def music_options(values, model="Piano"):
+    """Validate optional model thresholds and produce CLI arguments."""
+    if model in ("Transkun (piano)", "Pedal Piano"):
+        return []
+    result = []
+    specs = (("onset", "Note onset", 1, "--onset-th"),
+             ("duration", "Frame confidence", 1, "--frame-th"),
+             ("instrument", "Minimum note length", 2000, "--minimum-note-ms")) if model == "Basic Pitch" else (
+             ("onset", "Note onset", 20, "--onset-th"),
+             ("duration", "Note duration", 20, "--duration-th"),
+             ("instrument", "Instrument confidence", 5, "--instrument-th"))
+    for key, label, maximum, flag in specs:
+        raw = values[key].strip()
+        if not raw:
+            continue
+        try:
+            number = float(raw)
+        except ValueError as exc:
+            raise ValueError(f"{label} must be a number between 0 and {maximum}.") from exc
+        if not math.isfinite(number) or not 0 <= number <= maximum:
+            raise ValueError(f"{label} must be a number between 0 and {maximum}.")
+        result.extend([flag, str(number)])
+    return result
+
+
+class Application(ttk.Frame):
+    def __init__(self, master):
+        self._configure_style(master)
+        super().__init__(master, style="Root.TFrame")
+        self.master = master
+        self.pack(fill="both", expand=True)
+        self.mode = tk.StringVar(value=next(iter(MODES)))
+        self.music_model = tk.StringVar(value="Piano")
+        self.custom_model_path = read_imported_model()
+        self.remove_vocals = tk.BooleanVar(value=False)
+        self.include_vocals = tk.BooleanVar(value=False)
+        self.separator_model = tk.StringVar(value="UVR MDX (recommended)")
+        self.use_gpu = tk.BooleanVar(value=False)
+        self.gpu_index = tk.StringVar(value="0")
+        self.smooth_notes = tk.BooleanVar(value=False)
+        self.smooth_gap = tk.StringVar(value="30")
+        self.remove_short_notes = tk.BooleanVar(value=False)
+        self.minimum_short_note = tk.StringVar(value="40")
+        self.keep_accompaniment = tk.BooleanVar(value=False)
+        folders = read_folders()
+        self.input_folder = folders.get("input", "")
+        self.source = tk.StringVar()
+        saved_output = folders.get("output", "")
+        self.destination = tk.StringVar(value=saved_output if saved_output and Path(saved_output).is_dir()
+                                        else str(Path.home() / "Documents"))
+        self.status = tk.StringVar(value="Ready when you are.")
+        self.description = tk.StringVar()
+        self.defaults_description = tk.StringVar()
+        self.thresholds = {key: tk.StringVar() for key in ("onset", "duration", "instrument")}
+        self.current_model = None
+        self.model_thresholds = {}
+        self.messages = queue.Queue()
+        self.process = None
+        self.running = False
+        self.active_mode = None
+        self.output_folder = None
+        self.advanced_open = False
+        self.log_open = False
+
+        master.title("Omnizart")
+        master.geometry("900x760")
+        master.minsize(720, 650)
+        master.configure(bg=BG)
+        canvas = tk.Canvas(self, bg=BG, highlightthickness=0, borderwidth=0)
+        scrollbar = ttk.Scrollbar(self, orient="vertical", command=canvas.yview, style="App.Vertical.TScrollbar")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+        body = ttk.Frame(canvas, style="Root.TFrame", padding=(28, 22))
+        body.columnconfigure(0, weight=1)
+        canvas_window = canvas.create_window((0, 0), window=body, anchor="nw")
+        body.bind("<Configure>", lambda event: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda event: canvas.itemconfigure(canvas_window, width=event.width))
+        canvas.bind_all("<MouseWheel>", lambda event: canvas.yview_scroll(-int(event.delta / 120), "units"))
+
+        header = ttk.Frame(body, style="Root.TFrame")
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 20))
+        header.columnconfigure(0, weight=1)
+        ttk.Label(header, text="OMNIZART  /  TRANSCRIPTION", style="Eyebrow.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(header, text="Turn sound into music.", style="Title.TLabel").grid(row=1, column=0, sticky="w", pady=(5, 4))
+        ttk.Label(header, text="Choose a recording, pick a model, and create an editable MIDI.",
+                  style="Subtitle.TLabel").grid(row=2, column=0, sticky="w")
+
+        card = ttk.Frame(body, style="Card.TFrame", padding=(22, 18))
+        card.grid(row=1, column=0, sticky="ew")
+        card.columnconfigure(0, weight=1)
+        card.columnconfigure(1, weight=1)
+        ttk.Label(card, text="01  /  CHOOSE YOUR INPUT", style="Section.TLabel").grid(row=0, column=0, columnspan=2, sticky="w")
+        ttk.Label(card, text="Transcription type", style="CardLabel.TLabel").grid(row=1, column=0, sticky="w", pady=(16, 5))
+        ttk.Label(card, text="Model  •  click to choose", style="CardLabel.TLabel").grid(row=1, column=1, sticky="w", padx=(14, 0), pady=(16, 5))
+        modes = ttk.Combobox(card, textvariable=self.mode, values=list(MODES), state="readonly", style="App.TCombobox")
+        modes.grid(row=2, column=0, sticky="ew")
+        modes.bind("<<ComboboxSelected>>", self.mode_changed)
+        self.model_picker = ttk.Combobox(card, textvariable=self.music_model,
+                                        values=["Piano", "PianoV2", "Pop", "Stream", "Basic Pitch", "Transkun (piano)", "Pedal Piano", CUSTOM_MODEL],
+                                        state="readonly", style="App.TCombobox")
+        self.model_picker.grid(row=2, column=1, sticky="ew", padx=(14, 0))
+        self.model_picker.bind("<<ComboboxSelected>>", self.mode_changed)
+        ttk.Label(card, textvariable=self.description, style="CardHint.TLabel", wraplength=500).grid(
+            row=3, column=0, sticky="w", pady=(8, 0))
+        self.models_button = ttk.Button(card, text="Models & import...", style="Link.TButton", command=self.show_models)
+        self.models_button.grid(row=3, column=1, sticky="e", pady=(8, 0))
+        self._path_row(card, 4, "Input file", self.source, self.browse_input)
+        self._path_row(card, 6, "Save results to", self.destination, self.browse_output)
+        self.separation_option = ttk.Checkbutton(card, text="Reduce vocals before transcribing instruments",
+                                                variable=self.remove_vocals, style="App.TCheckbutton",
+                                                command=self.update_separation_controls)
+        self.separation_option.grid(row=8, column=0, sticky="w", pady=(16, 0))
+        self.keep_option = ttk.Checkbutton(card, text="Keep accompaniment WAV", variable=self.keep_accompaniment,
+                                           style="App.TCheckbutton", state="disabled")
+        self.keep_option.grid(row=8, column=1, sticky="w", padx=(14, 0), pady=(16, 0))
+        Tooltip(self.separation_option, "Uses the included CPU model to separate vocals. It can help with piano and voice, "
+                "but can also remove some instruments or introduce artifacts. Compare both results.")
+        ttk.Label(card, text="Optional for piano + voice; may also change the piano sound.",
+                  style="CardHint.TLabel").grid(row=9, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self.vocal_option = ttk.Checkbutton(card, text="Add a separate vocal track to MIDI",
+                                            variable=self.include_vocals, style="App.TCheckbutton",
+                                            command=self.update_vocal_controls)
+        self.vocal_option.grid(row=10, column=0, columnspan=2, sticky="w", pady=(10, 0))
+        Tooltip(self.vocal_option, "Separates and transcribes the sung melody into its own MIDI track. "
+                "This takes longer, and both tracks may need editing.")
+        ttk.Label(card, text="Separation model", style="CardLabel.TLabel").grid(row=11, column=0, sticky="w", pady=(10, 2))
+        self.separator_picker = ttk.Combobox(card, textvariable=self.separator_model,
+                                             values=["UVR MDX (recommended)", "Spleeter (legacy)"],
+                                             state="readonly", style="App.TCombobox")
+        self.separator_picker.grid(row=12, column=0, sticky="ew")
+        Tooltip(self.separator_picker, "Both models run locally. UVR can optionally use a GPU; results vary by recording.")
+        self.separator_picker.bind("<<ComboboxSelected>>", self.update_separation_controls)
+        self.gpu_option = ttk.Checkbutton(card, text="Use GPU for UVR separation (DirectML)",
+                                          variable=self.use_gpu, command=self.update_separation_controls,
+                                          style="App.TCheckbutton")
+        self.gpu_option.grid(row=13, column=0, sticky="w", pady=(10, 0))
+        self.gpu_frame = ttk.Frame(card, style="Card.TFrame")
+        self.gpu_frame.grid(row=13, column=1, sticky="w", padx=(14, 0), pady=(10, 0))
+        ttk.Label(self.gpu_frame, text="GPU index", style="CardLabel.TLabel").pack(side="left", padx=(0, 6))
+        self.gpu_entry = ttk.Entry(self.gpu_frame, textvariable=self.gpu_index, width=4, style="App.TEntry")
+        self.gpu_entry.pack(side="left")
+        Tooltip(self.gpu_option, "Optional GPU acceleration for UVR separation only; piano and vocal transcription still use CPU. "
+                "Compatible DirectX 12 NVIDIA, AMD and Intel GPUs can work. CPU remains the default.")
+        Tooltip(self.gpu_entry, "DirectML adapter index, normally 0. On computers with multiple GPUs, try 1 if 0 selects the wrong one.")
+        self.smooth_option = ttk.Checkbutton(card, text="Smooth fragmented notes (keep original MIDI)",
+                                             variable=self.smooth_notes, style="App.TCheckbutton",
+                                             command=self.update_smoothing_controls)
+        self.smooth_option.grid(row=14, column=0, sticky="w", pady=(10, 0))
+        self.smooth_frame = ttk.Frame(card, style="Card.TFrame")
+        self.smooth_frame.grid(row=14, column=1, sticky="w", padx=(14, 0), pady=(10, 0))
+        ttk.Label(self.smooth_frame, text="Max gap (ms)", style="CardLabel.TLabel").pack(side="left", padx=(0, 6))
+        self.smooth_entry = ttk.Entry(self.smooth_frame, textvariable=self.smooth_gap, width=5, style="App.TEntry")
+        self.smooth_entry.pack(side="left")
+        Tooltip(self.smooth_option, "Creates an extra MIDI by joining nearby same-pitch fragments when at least one is short. "
+                "It can merge intentional repeated notes. Vocal tracks, drums and passages with pitch bends or sustain are left alone.")
+        Tooltip(self.smooth_entry, "Maximum silence between fragments, in milliseconds (0–200). Default 30 ms. "
+                "Larger gaps may merge intentional repeats.")
+        self.short_option = ttk.Checkbutton(card, text="Remove very short notes (keep original MIDI)",
+                                            variable=self.remove_short_notes, style="App.TCheckbutton",
+                                            command=self.update_smoothing_controls)
+        self.short_option.grid(row=15, column=0, sticky="w", pady=(10, 0))
+        self.short_frame = ttk.Frame(card, style="Card.TFrame")
+        self.short_frame.grid(row=15, column=1, sticky="w", padx=(14, 0), pady=(10, 0))
+        ttk.Label(self.short_frame, text="Shorter than (ms)", style="CardLabel.TLabel").pack(side="left", padx=(0, 6))
+        self.short_entry = ttk.Entry(self.short_frame, textvariable=self.minimum_short_note, width=5, style="App.TEntry")
+        self.short_entry.pack(side="left")
+        Tooltip(self.short_option, "Removes short notes from a separate cleaned MIDI. Off by default. "
+                "Real fast notes may also be removed; compare with the original.")
+        Tooltip(self.short_entry, "Minimum note duration in milliseconds (greater than 0, up to 200). Default: 40 ms.")
+
+        self.settings_card = ttk.Frame(body, style="Card.TFrame", padding=(22, 12))
+        self.settings_card.grid(row=2, column=0, sticky="ew", pady=(12, 0))
+        self.settings_card.columnconfigure(0, weight=1)
+        self.advanced_button = ttk.Button(self.settings_card, text="Advanced settings   +", style="Link.TButton",
+                                          command=self.toggle_advanced)
+        self.advanced_button.grid(row=0, column=0, sticky="w")
+        self.advanced = ttk.Frame(self.settings_card, style="Card.TFrame")
+        self.advanced.grid(row=1, column=0, sticky="ew", pady=(8, 4))
+        for col in range(3):
+            self.advanced.columnconfigure(col, weight=1)
+        self.threshold_entries = {}
+        self.threshold_labels = {}
+        self.setting_tooltips = {}
+        for col, (key, title) in enumerate((("onset", "Note onset"), ("duration", "Note duration"),
+                                             ("instrument", "Instrument confidence"))):
+            label = ttk.Label(self.advanced, text=title + "  ⓘ", style="CardLabel.TLabel")
+            label.grid(row=0, column=col, sticky="w", padx=(0, 12))
+            self.threshold_labels[key] = label
+            entry = ttk.Entry(self.advanced, textvariable=self.thresholds[key], style="App.TEntry")
+            entry.grid(row=1, column=col, sticky="ew", padx=(0, 12), pady=(5, 3))
+            self.threshold_entries[key] = entry
+            self.setting_tooltips[key] = (Tooltip(label, SETTING_HELP[key]), Tooltip(entry, SETTING_HELP[key]))
+        ttk.Label(self.advanced, textvariable=self.defaults_description, style="CardHint.TLabel",
+                  wraplength=740).grid(row=2, column=0, columnspan=3, sticky="w", pady=(5, 0))
+        self.advanced.grid_remove()
+
+        footer = ttk.Frame(body, style="Root.TFrame")
+        footer.grid(row=3, column=0, sticky="ew", pady=(18, 0))
+        footer.columnconfigure(0, weight=1)
+        ttk.Label(footer, text="02  /  TRANSCRIBE", style="Eyebrow.TLabel").grid(row=0, column=0, sticky="w")
+        self.start_button = ttk.Button(footer, text="Start transcription  →", style="Primary.TButton", command=self.start)
+        self.start_button.grid(row=0, column=1, rowspan=2, sticky="e", padx=(12, 0))
+        ttk.Label(footer, textvariable=self.status, style="Subtitle.TLabel", wraplength=550).grid(row=1, column=0, sticky="w", pady=(6, 0))
+        self.progress = ttk.Progressbar(footer, mode="indeterminate", style="App.Horizontal.TProgressbar")
+        self.progress.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(14, 0))
+        self.progress.grid_remove()
+        self.open_button = ttk.Button(footer, text="Open results folder", style="Secondary.TButton", command=self.open_results, state="disabled")
+        self.open_button.grid(row=3, column=1, sticky="e", pady=(12, 0))
+        self.log_button = ttk.Button(footer, text="Show details  +", style="RootLink.TButton", command=self.toggle_log)
+        self.log_button.grid(row=3, column=0, sticky="w", pady=(12, 0))
+        self.log = tk.Text(footer, height=7, wrap="word", state="disabled", bg="#0b0f19", fg=MUTED,
+                           insertbackground=TEXT, relief="flat", font=("Consolas", 9), padx=12, pady=10)
+        self.log.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        self.log.grid_remove()
+        self.mode_changed()
+        self.after(100, self.poll)
+        master.protocol("WM_DELETE_WINDOW", self.close)
+
+    @staticmethod
+    def _configure_style(master):
+        style = ttk.Style(master)
+        style.theme_use("clam")
+        style.configure("Root.TFrame", background=BG)
+        style.configure("Card.TFrame", background=PANEL)
+        for name, background, foreground, font in (
+            ("Eyebrow.TLabel", BG, ACCENT, ("Segoe UI", 9, "bold")),
+            ("Title.TLabel", BG, TEXT, ("Segoe UI", 25, "bold")),
+            ("Subtitle.TLabel", BG, MUTED, ("Segoe UI", 10)),
+            ("Section.TLabel", PANEL, ACCENT, ("Segoe UI", 9, "bold")),
+            ("CardLabel.TLabel", PANEL, TEXT, ("Segoe UI", 10, "bold")),
+            ("CardHint.TLabel", PANEL, MUTED, ("Segoe UI", 9)),
+        ):
+            style.configure(name, background=background, foreground=foreground, font=font)
+        style.configure("App.TEntry", fieldbackground=FIELD, foreground=TEXT, borderwidth=0, padding=9, insertcolor=TEXT)
+        style.configure("App.TCheckbutton", background=PANEL, foreground=TEXT, font=("Segoe UI", 10))
+        style.map("App.TCheckbutton", background=[("active", PANEL)], foreground=[("disabled", MUTED)])
+        style.configure("App.TCombobox", fieldbackground=FIELD, background=FIELD, foreground=TEXT, arrowcolor=TEXT,
+                        borderwidth=0, padding=9)
+        style.map("App.TCombobox", fieldbackground=[("readonly", FIELD), ("disabled", PANEL)],
+                  foreground=[("readonly", TEXT), ("disabled", MUTED)], selectbackground=[("readonly", FIELD)],
+                  selectforeground=[("readonly", TEXT)])
+        style.configure("Primary.TButton", background="#9d8bff", foreground="#111426", font=("Segoe UI", 10, "bold"),
+                        borderwidth=0, padding=(20, 11))
+        style.map("Primary.TButton", background=[("active", "#b8aaff"), ("disabled", "#45495e")],
+                  foreground=[("disabled", "#aab4c8")])
+        style.configure("Secondary.TButton", background=FIELD, foreground=TEXT, borderwidth=0, padding=(13, 8))
+        style.map("Secondary.TButton", background=[("active", "#35415a"), ("disabled", PANEL)],
+                  foreground=[("disabled", MUTED)])
+        for name, background in (("Link.TButton", PANEL), ("RootLink.TButton", BG)):
+            style.configure(name, background=background, foreground=ACCENT, borderwidth=0, padding=(0, 4),
+                            font=("Segoe UI", 10, "bold"))
+            style.map(name, background=[("active", background)], foreground=[("disabled", MUTED)])
+        style.configure("App.Horizontal.TProgressbar", troughcolor=FIELD, background=ACCENT, borderwidth=0, thickness=4)
+        style.configure("App.Vertical.TScrollbar", troughcolor=BG, background=FIELD, arrowcolor=MUTED,
+                        borderwidth=0, arrowsize=12)
+        style.map("App.Vertical.TScrollbar", background=[("active", "#46516b")])
+        master.option_add("*TCombobox*Listbox.background", FIELD)
+        master.option_add("*TCombobox*Listbox.foreground", TEXT)
+        master.option_add("*TCombobox*Listbox.selectBackground", "#6357ad")
+
+    @staticmethod
+    def _path_row(parent, row, label, variable, callback):
+        ttk.Label(parent, text=label, style="CardLabel.TLabel").grid(row=row, column=0, columnspan=2, sticky="w", pady=(15, 5))
+        frame = ttk.Frame(parent, style="Card.TFrame")
+        frame.grid(row=row + 1, column=0, columnspan=2, sticky="ew")
+        frame.columnconfigure(0, weight=1)
+        ttk.Entry(frame, textvariable=variable, style="App.TEntry").grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        ttk.Button(frame, text="Browse...", style="Secondary.TButton", command=callback).grid(row=0, column=1)
+
+    def mode_changed(self, event=None):
+        mode, input_kind, output_kind = MODES[self.mode.get()]
+        if mode == "music":
+            selected_model = self.music_model.get()
+            if selected_model != self.current_model:
+                if self.current_model is not None:
+                    self.model_thresholds[self.current_model] = {key: value.get() for key, value in self.thresholds.items()}
+                saved = self.model_thresholds.get(selected_model, {})
+                for key, variable in self.thresholds.items():
+                    variable.set(saved.get(key, ""))
+                self.current_model = selected_model
+            self.model_picker.configure(state="readonly")
+            self.models_button.configure(state="normal")
+            self.separation_option.configure(state="normal")
+            self.vocal_option.configure(state="normal")
+            self.separator_picker.configure(state="readonly")
+            self.smooth_option.configure(state="normal")
+            self.short_option.configure(state="normal")
+            self.update_smoothing_controls()
+            self.update_separation_controls()
+            is_fixed_piano = self.music_model.get() in ("Transkun (piano)", "Pedal Piano")
+            self.advanced_button.configure(state="disabled" if is_fixed_piano else "normal")
+            if is_fixed_piano:
+                self.advanced.grid_remove()
+                self.advanced_open = False
+                self.advanced_button.configure(text="Advanced settings   +")
+            hints = {"Piano": "For solo piano recordings. A good starting point for piano.",
+                     "PianoV2": "Alternative solo piano model; compare it with Piano.",
+                     "Pop": "For multiple instruments. Solo piano may produce no notes.",
+                     "Stream": "Attempts to identify different instruments in a recording.",
+                     "Basic Pitch": "A separate model for individual instruments and voice; outputs MIDI pitch bends.",
+                     "Transkun (piano)": "A piano-specific model. Uses CPU and may take longer on full songs.",
+                     "Pedal Piano": "Piano model with sustain-pedal estimates. Download or import it in Models & import.",
+                     CUSTOM_MODEL: (f"Imported checkpoint: {Path(self.custom_model_path).name}"
+                                    if self.custom_model_path else
+                                    "Select a compatible Omnizart checkpoint in Models & import.")}
+            self.description.set(hints[self.music_model.get()])
+            basic = self.music_model.get() == "Basic Pitch"
+            custom = self.music_model.get() == CUSTOM_MODEL
+            multi_instrument = self.music_model.get() in ("Pop", "Stream", CUSTOM_MODEL)
+            self.threshold_entries["instrument"].configure(state="normal" if multi_instrument or basic else "disabled")
+            labels = {"onset": "Note onset", "duration": "Frame confidence" if basic else "Note duration",
+                      "instrument": "Minimum note length (ms)" if basic else "Instrument confidence"}
+            for key in labels:
+                self.threshold_labels[key].configure(text=labels[key] + "  ⓘ")
+                for tooltip in self.setting_tooltips[key]:
+                    tooltip.text = (BP_SETTING_HELP if basic else SETTING_HELP)[key]
+            if is_fixed_piano:
+                self.defaults_description.set("This piano model uses its own model settings.")
+            elif custom:
+                self.defaults_description.set("Uses the imported checkpoint's defaults. Leave blank to use them.\n"
+                                              "Lower thresholds may recover more notes but can add errors.")
+            elif basic:
+                self.defaults_description.set("Defaults: onset 0.5, frame 0.3, minimum note length 127.7 ms. "
+                                              "Leave blank to use defaults.\nLower thresholds may recover "
+                                              "more notes, but can add errors.")
+            else:
+                onset_default = "6" if multi_instrument else "4"
+                confidence_default = ", instrument confidence 1.1" if multi_instrument else ""
+                self.defaults_description.set(f"Defaults: onset {onset_default}, duration 0.5{confidence_default}. "
+                                              "Leave blank to use defaults. Values are thresholds, not seconds.\n"
+                                              "Lower values may recover more notes but can add errors. "
+                                              "Instrument confidence is used by Pop and Stream.")
+        else:
+            self.model_picker.configure(state="disabled")
+            self.models_button.configure(state="disabled")
+            self.separation_option.configure(state="disabled")
+            self.vocal_option.configure(state="disabled")
+            self.separator_picker.configure(state="disabled")
+            self.keep_option.configure(state="disabled")
+            self.gpu_option.configure(state="disabled")
+            self.gpu_entry.configure(state="disabled")
+            self.smooth_option.configure(state="disabled")
+            self.smooth_entry.configure(state="disabled")
+            self.short_option.configure(state="disabled")
+            self.short_entry.configure(state="disabled")
+            self.advanced_button.configure(state="disabled")
+            self.advanced.grid_remove()
+            self.advanced_open = False
+            self.advanced_button.configure(text="Advanced settings   +")
+            self.description.set(f"Input: {input_kind}  •  Output: {output_kind}. This mode uses its model defaults.")
+
+    def toggle_advanced(self):
+        self.advanced_open = not self.advanced_open
+        if self.advanced_open:
+            self.advanced.grid()
+        else:
+            self.advanced.grid_remove()
+        self.advanced_button.configure(text="Advanced settings   −" if self.advanced_open else "Advanced settings   +")
+
+    def update_separation_controls(self, event=None):
+        enabled = self.mode.get() == "Piano and instruments" and self.remove_vocals.get()
+        self.keep_option.configure(state="normal" if enabled else "disabled")
+        uvr = (self.mode.get() == "Piano and instruments" and
+               (self.remove_vocals.get() or self.include_vocals.get()) and
+               self.separator_model.get().startswith("UVR"))
+        self.gpu_option.configure(state="normal" if uvr else "disabled")
+        self.gpu_entry.configure(state="normal" if uvr and self.use_gpu.get() else "disabled")
+
+    def update_vocal_controls(self):
+        if self.include_vocals.get():
+            self.remove_vocals.set(True)
+        self.update_separation_controls()
+
+    def update_smoothing_controls(self):
+        enabled = self.mode.get() == "Piano and instruments" and self.smooth_notes.get()
+        self.smooth_entry.configure(state="normal" if enabled else "disabled")
+        short_enabled = self.mode.get() == "Piano and instruments" and self.remove_short_notes.get()
+        self.short_entry.configure(state="normal" if short_enabled else "disabled")
+
+    def toggle_log(self):
+        self.log_open = not self.log_open
+        if self.log_open:
+            self.log.grid()
+        else:
+            self.log.grid_remove()
+        self.log_button.configure(text="Hide details  −" if self.log_open else "Show details  +")
+
+    def browse_input(self):
+        midi = MODES[self.mode.get()][0] == "beat"
+        kinds = [("MIDI files", "*.mid *.midi"), ("All files", "*.*")] if midi else [
+            ("Audio files", "*.wav *.flac *.mp3 *.ogg *.aiff *.aif"), ("All files", "*.*")]
+        current = Path(self.source.get()).expanduser() if self.source.get().strip() else None
+        initial = str(current.parent) if current and current.parent.is_dir() else (
+            self.input_folder if self.input_folder and Path(self.input_folder).is_dir() else "")
+        path = filedialog.askopenfilename(filetypes=kinds, initialdir=initial or None)
+        if path:
+            self.source.set(path)
+            self.input_folder = str(Path(path).parent)
+            self.save_folders(input_folder=self.input_folder)
+
+    def show_models(self):
+        dialog = tk.Toplevel(self.master)
+        dialog.title("Models & import")
+        dialog.configure(bg=BG)
+        dialog.geometry("650x640")
+        dialog.transient(self.master)
+        frame = ttk.Frame(dialog, style="Root.TFrame", padding=24)
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text="Models & import", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(frame, text="Included: Piano, PianoV2, Pop, Stream, Basic Pitch and Transkun.\n"
+                  "Choose a model in the drop-down. For solo piano, compare Piano and Transkun.",
+                  style="Subtitle.TLabel", wraplength=555, justify="left").pack(anchor="w", pady=(12, 16))
+        ttk.Label(frame, text="Import a complete Omnizart music checkpoint folder containing configurations.yaml, "
+                  "saved_model.pb and its variables. The release download supplies weights only; it does not include "
+                  "the other files. Transkun and Basic Pitch models use different formats and cannot be imported here.",
+                  style="Subtitle.TLabel", wraplength=555, justify="left").pack(anchor="w")
+        ttk.Button(frame, text="Choose checkpoint folder...", style="Secondary.TButton",
+                   command=lambda: self.import_model(dialog)).pack(anchor="w", pady=(12, 12))
+        ttk.Label(frame, text="Pedal Piano (optional): estimates piano notes and sustain pedal. "
+                  "Download the official 164 MiB checkpoint or import an existing copy. "
+                  "The file is checked before use.", style="Subtitle.TLabel", wraplength=555,
+                  justify="left").pack(anchor="w", pady=(0, 8))
+        model_status = tk.StringVar(value="Pedal Piano checkpoint is stored in your local Omnizart models folder.")
+        controls = ttk.Frame(frame, style="Root.TFrame")
+        controls.pack(anchor="w")
+        download = ttk.Button(controls, text="Download Pedal Piano", style="Secondary.TButton")
+        import_button = ttk.Button(controls, text="Import checkpoint...", style="Secondary.TButton")
+        download.pack(side="left", padx=(0, 8))
+        import_button.pack(side="left")
+        ttk.Label(frame, textvariable=model_status, style="Subtitle.TLabel", wraplength=555).pack(anchor="w", pady=(6, 10))
+
+        def prepare_model(source=None):
+            from omnizart.desktop.pedal_piano import install_checkpoint
+            results = queue.Queue()
+            download.configure(state="disabled")
+            import_button.configure(state="disabled")
+            model_status.set("Preparing model; please wait. The download can take several minutes.")
+
+            def work():
+                try:
+                    results.put((True, str(install_checkpoint(source))))
+                except Exception as exc:
+                    results.put((False, str(exc)))
+
+            def poll_model():
+                try:
+                    ok, result = results.get_nowait()
+                except queue.Empty:
+                    dialog.after(250, poll_model)
+                    return
+                download.configure(state="normal")
+                import_button.configure(state="normal")
+                if ok:
+                    model_status.set("Pedal Piano is ready and selected.")
+                    self.music_model.set("Pedal Piano")
+                    self.mode_changed()
+                else:
+                    model_status.set("Model preparation failed: " + result)
+
+            threading.Thread(target=work, daemon=True).start()
+            dialog.after(250, poll_model)
+
+        def import_pedal():
+            path = filedialog.askopenfilename(parent=dialog, title="Choose the official Pedal Piano checkpoint",
+                                              filetypes=[("PyTorch checkpoint", "*.pth"), ("All files", "*.*")])
+            if path:
+                prepare_model(path)
+
+        download.configure(command=prepare_model)
+        import_button.configure(command=import_pedal)
+        ttk.Button(frame, text="Open Pedal Piano model page ↗", style="RootLink.TButton",
+                   command=lambda: webbrowser.open("https://zenodo.org/records/4034264")).pack(anchor="w")
+        ttk.Button(frame, text="Open Omnizart model downloads ↗", style="RootLink.TButton",
+                   command=lambda: webbrowser.open("https://github.com/Music-and-Culture-Technology-Lab/omnizart/releases/tag/checkpoints-20211001")).pack(anchor="w")
+        ttk.Button(frame, text="Open Basic Pitch project page ↗", style="RootLink.TButton",
+                   command=lambda: webbrowser.open("https://github.com/spotify/basic-pitch")).pack(anchor="w")
+        ttk.Button(frame, text="Open Transkun project page ↗", style="RootLink.TButton",
+                   command=lambda: webbrowser.open("https://github.com/Yujia-Yan/Transkun")).pack(anchor="w")
+
+    def import_model(self, dialog=None):
+        path = filedialog.askdirectory(title="Choose an Omnizart music checkpoint folder", parent=dialog or self.master)
+        if not path:
+            return
+        if not validate_model_folder(path):
+            messagebox.showerror("Incomplete checkpoint", "Choose a complete Omnizart music checkpoint folder with "
+                                 "configurations.yaml, saved_model.pb and the variables files.", parent=dialog or self.master)
+            return
+        self.custom_model_path = path
+        try:
+            remember_imported_model(path)
+        except OSError:
+            messagebox.showwarning("Model selected", "The model is available for this session, but its location "
+                                   "could not be saved. You may need to select it again next time.", parent=dialog or self.master)
+        self.music_model.set(CUSTOM_MODEL)
+        self.mode_changed()
+        if dialog is not None:
+            dialog.destroy()
+
+    def browse_output(self):
+        current = self.destination.get().strip()
+        path = filedialog.askdirectory(initialdir=current if current and Path(current).is_dir() else None)
+        if path:
+            self.destination.set(path)
+            self.save_folders(output_folder=path)
+
+    def save_folders(self, input_folder=None, output_folder=None):
+        try:
+            remember_folders(input_folder, output_folder)
+        except OSError:
+            self.status.set("Folders could not be saved for next time.")
+
+    def start(self):
+        source = Path(self.source.get()).expanduser()
+        destination = Path(self.destination.get()).expanduser()
+        if not self.source.get().strip() or not source.is_file():
+            messagebox.showerror("Input file", "Choose an existing input file.")
+            return
+        if not self.destination.get().strip() or not destination.is_dir():
+            messagebox.showerror("Output folder", "Choose an existing output folder.")
+            return
+        self.input_folder = str(source.parent.resolve())
+        self.save_folders(input_folder=self.input_folder, output_folder=str(destination.resolve()))
+        mode = MODES[self.mode.get()][0]
+        if mode == "beat" and source.suffix.lower() not in (".mid", ".midi"):
+            messagebox.showerror("Input file", "Beat tracking requires a MIDI file.")
+            return
+        if mode == "music" and self.music_model.get() == CUSTOM_MODEL and (
+                not self.custom_model_path or not validate_model_folder(self.custom_model_path)):
+            messagebox.showerror("Model", "Use Models & import to select a complete Omnizart music checkpoint.")
+            return
+        if mode == "music" and self.music_model.get() == "Pedal Piano":
+            from omnizart.desktop.pedal_piano import checkpoint_path, CHECKPOINT_SIZE
+            checkpoint = checkpoint_path()
+            try:
+                available = checkpoint.is_file() and checkpoint.stat().st_size == CHECKPOINT_SIZE
+            except OSError:
+                available = False
+            if not available:
+                messagebox.showerror("Pedal Piano model", "Open Models & import to download or import the Pedal Piano checkpoint.")
+                return
+        try:
+            values = {key: value.get() for key, value in self.thresholds.items()}
+            if self.music_model.get() not in ("Pop", "Stream", "Basic Pitch", CUSTOM_MODEL):
+                values["instrument"] = ""
+            options = music_options(values, self.music_model.get()) if mode == "music" else []
+            gpu_enabled = (mode == "music" and (self.remove_vocals.get() or self.include_vocals.get()) and
+                           self.separator_model.get().startswith("UVR") and self.use_gpu.get())
+            gpu_index = self.gpu_index.get().strip()
+            if gpu_enabled and (not gpu_index.isdecimal() or int(gpu_index) > 99):
+                raise ValueError("GPU index must be a whole number between 0 and 99.")
+            if mode == "music" and self.smooth_notes.get():
+                try:
+                    gap = float(self.smooth_gap.get())
+                except ValueError as exc:
+                    raise ValueError("Smoothing gap must be a number between 0 and 200 ms.") from exc
+                if not math.isfinite(gap) or not 0 <= gap <= 200:
+                    raise ValueError("Smoothing gap must be a number between 0 and 200 ms.")
+            if mode == "music" and self.remove_short_notes.get():
+                try:
+                    minimum = float(self.minimum_short_note.get())
+                except ValueError as exc:
+                    raise ValueError("Minimum note length must be greater than 0 and at most 200 ms.") from exc
+                if not math.isfinite(minimum) or not 0 < minimum <= 200:
+                    raise ValueError("Minimum note length must be greater than 0 and at most 200 ms.")
+        except ValueError as exc:
+            messagebox.showerror("Advanced settings", str(exc))
+            return
+        for number in range(10000):
+            suffix = "" if number == 0 else f"_{number + 1}"
+            target = destination / (source.stem + "_omnizart" + suffix)
+            try:
+                target.mkdir()
+                break
+            except FileExistsError:
+                continue
+            except OSError as exc:
+                messagebox.showerror("Cannot create output folder", str(exc))
+                return
+        else:
+            messagebox.showerror("Cannot create output folder", "Too many output folders with this name.")
+            return
+        cmd = [sys.executable, "-u", "-m", "omnizart.desktop.worker", mode,
+               "transcribe", str(source.resolve()), "--output", str(target.resolve())]
+        if mode == "music":
+            model = self.custom_model_path if self.music_model.get() == CUSTOM_MODEL else self.music_model.get()
+            cmd.extend(["--model-path", model, *options])
+            if self.smooth_notes.get():
+                cmd.extend(["--smooth-notes", "--smooth-gap-ms", self.smooth_gap.get().strip()])
+            if self.remove_short_notes.get():
+                cmd.extend(["--remove-short-ms", self.minimum_short_note.get().strip()])
+            if self.include_vocals.get():
+                cmd.append("--include-vocals")
+            if self.include_vocals.get() or self.remove_vocals.get():
+                cmd.extend(["--separator", "uvr" if self.separator_model.get().startswith("UVR") else "spleeter"])
+                if gpu_enabled:
+                    cmd.extend(["--uvr-device", "directml", "--gpu-index", gpu_index])
+            if self.remove_vocals.get():
+                cmd.append("--remove-vocals")
+                if self.keep_accompaniment.get():
+                    cmd.append("--save-accompaniment")
+        self.log.configure(state="normal")
+        self.log.delete("1.0", "end")
+        self.log.configure(state="disabled")
+        self.start_button.configure(state="disabled")
+        self.open_button.configure(state="disabled")
+        self.running = True
+        self.active_mode = mode
+        self.output_folder = target
+        self.status.set("Transcribing on your computer. This can take several minutes.")
+        self.progress.grid()
+        self.progress.start(12)
+        threading.Thread(target=self.run, args=(cmd, target), daemon=True).start()
+
+    def run(self, cmd, target):
+        try:
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                            text=True, encoding="utf-8", errors="replace", creationflags=flags)
+            for line in self.process.stdout:
+                self.messages.put(("log", line))
+            self.messages.put(("done", (self.process.wait(), target)))
+        except Exception as exc:
+            self.messages.put(("error", str(exc)))
+
+    def poll(self):
+        try:
+            while True:
+                kind, value = self.messages.get_nowait()
+                if kind == "log":
+                    self.log.configure(state="normal")
+                    self.log.insert("end", value)
+                    self.log.see("end")
+                    self.log.configure(state="disabled")
+                    continue
+                self.process = None
+                self.running = False
+                self.progress.stop()
+                self.progress.grid_remove()
+                self.start_button.configure(state="normal")
+                if self.output_folder and self.output_folder.is_dir():
+                    self.open_button.configure(state="normal")
+                if kind == "error":
+                    self.status.set("Could not start transcription.")
+                    messagebox.showerror("Transcription failed", value)
+                elif value[0] == 0 and any(value[1].iterdir()):
+                    try:
+                        notes = midi_note_count(value[1])
+                    except (OSError, ValueError, EOFError):
+                        self.status.set("Finished, but the MIDI could not be read. Open the results folder to inspect it.")
+                    else:
+                        if notes == 0:
+                            self.status.set("No notes detected. Try Piano for solo piano, or adjust the thresholds.")
+                        elif notes is None:
+                            self.status.set("Finished. Your results are ready.")
+                        else:
+                            self.status.set(f"Finished. {notes:,} notes detected.")
+                elif value[0] == 0:
+                    self.status.set("No output was created. Open details for more information.")
+                else:
+                    self.status.set("Transcription failed. Open details for more information.")
+                    if not self.log_open:
+                        self.toggle_log()
+        except queue.Empty:
+            pass
+        self.after(100, self.poll)
+
+    def open_results(self):
+        if self.output_folder and self.output_folder.is_dir():
+            try:
+                os.startfile(str(self.output_folder))
+            except OSError as exc:
+                messagebox.showerror("Cannot open results", str(exc))
+
+    def close(self):
+        if self.running:
+            messagebox.showinfo("Transcription running", "Wait for transcription to finish before closing.")
+            return
+        self.master.destroy()
+
+
+def main():
+    root = tk.Tk()
+    Application(root)
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    main()

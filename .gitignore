@@ -28,6 +28,8 @@ all_weights/
 *.mid
 *.csv
 *.txt
+!scripts/windows/README.txt
+!omnizart/desktop/UVR-NOTICES.txt
 
 # Built files
 dist/
@@ -48,3 +50,10 @@ test.sh
 *.ipynb
 *.pptx
 copy_weights_to_dir.py
+.mamba/
+.runtime/
+.runtime311/
+/Library/
+/micromamba-win-64.tar.bz2
+/windows-wheel-check/
+/spleeter-model.tar.bz2
