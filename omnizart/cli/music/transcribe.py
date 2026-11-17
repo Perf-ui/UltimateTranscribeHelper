@@ -27,6 +27,7 @@ music = LazyLoader("music", globals(), "omnizart.music")
 @click.option("--uvr-device", type=click.Choice(["cpu", "directml"]), default="cpu", help="Device for UVR separation only.")
 @click.option("--gpu-index", type=click.IntRange(min=0), default=0, help="DirectML adapter index.")
 @click.option("--compare-midi", type=click.Path(exists=True, dir_okay=False), default=None, help="Compare note onsets with an existing MIDI.")
+@click.option("--score-grid", type=click.Choice(["off", "8", "16", "32"]), default="off", help="Optional score-only rhythm grid.")
 @click.option("--musescore", type=click.Path(exists=True, dir_okay=False), default=None, help="MuseScore executable for optional MusicXML export.")
 @click.option("--lint-notes", is_flag=True, help="Save a non-destructive transcription review report.")
 @click.option("--smooth-notes", is_flag=True, help="Also save a conservatively smoothed MIDI copy.")
@@ -34,7 +35,7 @@ music = LazyLoader("music", globals(), "omnizart.music")
 @click.option("--remove-short-ms", type=click.FloatRange(0, 200), default=0, help="Also remove notes shorter than this duration; 0 disables.")
 def transcribe(input_audio, model_path, output, onset_th, duration_th, instrument_th, frame_th, minimum_note_ms,
                remove_vocals, save_accompaniment, include_vocals, separator, uvr_device, gpu_index,
-               compare_midi, musescore, lint_notes, smooth_notes, smooth_gap_ms, remove_short_ms):
+               compare_midi, score_grid, musescore, lint_notes, smooth_notes, smooth_gap_ms, remove_short_ms):
     """Transcribe a single audio and output as a MIDI file.
 
     This will output a MIDI file with the same name as the given audio, except the
@@ -49,6 +50,8 @@ def transcribe(input_audio, model_path, output, onset_th, duration_th, instrumen
         --model-path path/to/model \\ 
         --output example.mid
     """
+    if score_grid != "off" and not musescore:
+        raise click.UsageError("--score-grid requires --musescore.")
     if save_accompaniment and not remove_vocals:
         raise click.UsageError("--save-accompaniment requires --remove-vocals.")
     if uvr_device != "cpu" and (separator != "uvr" or not (remove_vocals or include_vocals)):
@@ -125,7 +128,7 @@ def transcribe(input_audio, model_path, output, onset_th, duration_th, instrumen
         from omnizart.desktop.score_export import export_musicxml
         score = target.with_name(target.stem + ".musicxml")
         try:
-            export_musicxml(target, score, musescore)
+            export_musicxml(target, score, musescore, 0 if score_grid == "off" else int(score_grid))
         except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as exc:
             raise click.ClickException(f"Original MIDI was saved, but MusicXML export failed: {exc}") from exc
         click.echo(f"MusicXML draft saved to {score}. Review the notation in MuseScore.")

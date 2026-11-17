@@ -53,6 +53,9 @@ MuseScore4.exe with "Choose MuseScore...". The MIDI remains unchanged.
 MuseScore converts the MIDI using its own import settings; review notes,
 rhythm, pedal and dynamics. Pedal and dynamics are not guaranteed to survive
 conversion, and this option does not infer markings missing from the MIDI.
+The optional score rhythm grid snaps note starts and ends before MuseScore
+imports them. It can simplify notation but can change expressive timing and
+fast notes. It is off by default and never changes the original MIDI.
 
 Optional "Create note review report" writes a separate `_review.txt` with
 timestamps for very short, overlapping and stuck notes, plus possible vocal

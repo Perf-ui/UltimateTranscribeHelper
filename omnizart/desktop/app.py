@@ -260,6 +260,7 @@ class Application(ttk.Frame):
         self.gpu_index = tk.StringVar(value="0")
         self.compare_enabled = tk.BooleanVar(value=False)
         self.compare_path = tk.StringVar()
+        self.score_grid = tk.StringVar(value="Off")
         self.musescore_export = tk.BooleanVar(value=False)
         self.musescore_path = tk.StringVar()
         self.lint_notes = tk.BooleanVar(value=False)
@@ -420,6 +421,12 @@ class Application(ttk.Frame):
         self.compare_button.grid(row=18, column=1, sticky="w", padx=(14, 0), pady=(10, 0))
         Tooltip(self.compare_option, "Lists pitch and onset differences from another MIDI made from the same audio. Does not prove which is correct.")
 
+        self.score_grid_label = ttk.Label(card, text="Score rhythm grid", style="CardLabel.TLabel")
+        self.score_grid_label.grid(row=19, column=0, sticky="w", pady=(10, 0))
+        self.score_grid_picker = ttk.Combobox(card, textvariable=self.score_grid, values=["Off", "1/8", "1/16", "1/32"], state="readonly", style="App.TCombobox", width=8)
+        self.score_grid_picker.grid(row=19, column=1, sticky="w", padx=(14, 0), pady=(10, 0))
+        Tooltip(self.score_grid_picker, "Optional score-only quantization: snaps note starts and ends to the selected grid. Off retains the MIDI timing. May change rhythms; original MIDI is untouched.")
+
         self.settings_card = ttk.Frame(body, style="Card.TFrame", padding=(22, 12))
         self.settings_card.grid(row=2, column=0, sticky="ew", pady=(12, 0))
         self.settings_card.columnconfigure(0, weight=1)
@@ -539,6 +546,7 @@ class Application(ttk.Frame):
             self.separation_models_button.configure(state="normal")
             self.compare_option.configure(state="normal")
             self.compare_button.configure(state="normal")
+            self.score_grid_picker.configure(state="readonly")
             self.score_option.configure(state="normal")
             self.score_button.configure(state="normal")
             self.lint_option.configure(state="normal")
@@ -606,6 +614,7 @@ class Application(ttk.Frame):
             self.gpu_entry.configure(state="disabled")
             self.compare_option.configure(state="disabled")
             self.compare_button.configure(state="disabled")
+            self.score_grid_picker.configure(state="disabled")
             self.score_option.configure(state="disabled")
             self.score_button.configure(state="disabled")
             self.lint_option.configure(state="disabled")
@@ -1096,6 +1105,8 @@ class Application(ttk.Frame):
                 cmd.extend(["--compare-midi", self.compare_path.get()])
             if self.musescore_export.get():
                 cmd.extend(["--musescore", self.musescore_path.get()])
+                if self.score_grid.get() != "Off":
+                    cmd.extend(["--score-grid", self.score_grid.get()[2:]])
             if self.lint_notes.get():
                 cmd.append("--lint-notes")
             if self.smooth_notes.get():
