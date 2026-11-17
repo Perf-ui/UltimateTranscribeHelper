@@ -31,7 +31,7 @@ ACCENT = "#a49aff"
 FIELD = "#252d40"
 CUSTOM_MODEL = "Imported Omnizart model"
 RESULT_SUFFIXES = (".mid", ".midi", ".csv", "_beat.csv", "_down_beat.csv", "_f0.csv",
-                   "_trans.wav", "_accompaniment.wav", "_smoothed.mid", "_review.txt", ".musicxml", "_drums.wav",
+                   "_trans.wav", "_accompaniment.wav", "_smoothed.mid", "_review.txt", "_comparison.txt", ".musicxml", "_drums.wav",
                    "_bass.wav", "_other.wav", "_vocals.wav", "_guitar.wav", "_piano.wav")
 
 SETTING_HELP = {
@@ -258,6 +258,8 @@ class Application(ttk.Frame):
         self.separator_model = tk.StringVar(value="UVR MDX (recommended)")
         self.use_gpu = tk.BooleanVar(value=False)
         self.gpu_index = tk.StringVar(value="0")
+        self.compare_enabled = tk.BooleanVar(value=False)
+        self.compare_path = tk.StringVar()
         self.musescore_export = tk.BooleanVar(value=False)
         self.musescore_path = tk.StringVar()
         self.lint_notes = tk.BooleanVar(value=False)
@@ -412,6 +414,12 @@ class Application(ttk.Frame):
         Tooltip(self.score_option, "Creates a draft score using your MuseScore installation. Review timing, notation, pedal and dynamics; the original MIDI is kept.")
         Tooltip(self.score_button, "Select MuseScore4.exe from your MuseScore installation.")
 
+        self.compare_option = ttk.Checkbutton(card, text="Compare with another MIDI", variable=self.compare_enabled, style="App.TCheckbutton")
+        self.compare_option.grid(row=18, column=0, sticky="w", pady=(10, 0))
+        self.compare_button = ttk.Button(card, text="Choose comparison MIDI...", style="Link.TButton", command=self.choose_comparison)
+        self.compare_button.grid(row=18, column=1, sticky="w", padx=(14, 0), pady=(10, 0))
+        Tooltip(self.compare_option, "Lists pitch and onset differences from another MIDI made from the same audio. Does not prove which is correct.")
+
         self.settings_card = ttk.Frame(body, style="Card.TFrame", padding=(22, 12))
         self.settings_card.grid(row=2, column=0, sticky="ew", pady=(12, 0))
         self.settings_card.columnconfigure(0, weight=1)
@@ -529,6 +537,8 @@ class Application(ttk.Frame):
             self.vocal_option.configure(state="normal")
             self.separator_picker.configure(state="readonly")
             self.separation_models_button.configure(state="normal")
+            self.compare_option.configure(state="normal")
+            self.compare_button.configure(state="normal")
             self.score_option.configure(state="normal")
             self.score_button.configure(state="normal")
             self.lint_option.configure(state="normal")
@@ -594,6 +604,8 @@ class Application(ttk.Frame):
             self.keep_option.configure(state="disabled")
             self.gpu_option.configure(state="disabled")
             self.gpu_entry.configure(state="disabled")
+            self.compare_option.configure(state="disabled")
+            self.compare_button.configure(state="disabled")
             self.score_option.configure(state="disabled")
             self.score_button.configure(state="disabled")
             self.lint_option.configure(state="disabled")
@@ -856,6 +868,12 @@ class Application(ttk.Frame):
         download.configure(command=prepare)
         import_button.configure(command=import_file)
 
+    def choose_comparison(self):
+        path = filedialog.askopenfilename(parent=self.master, title="Choose a MIDI to compare", filetypes=[("MIDI", "*.mid *.midi"), ("All files", "*.*")])
+        if path:
+            self.compare_path.set(path)
+            self.compare_enabled.set(True)
+
     def choose_musescore(self):
         path = filedialog.askopenfilename(parent=self.master, title="Choose MuseScore4.exe", filetypes=[("Executable", "*.exe"), ("All files", "*.*")])
         if path:
@@ -1056,6 +1074,9 @@ class Application(ttk.Frame):
         except ValueError as exc:
             messagebox.showerror("Advanced settings", str(exc))
             return
+        if mode == "music" and self.compare_enabled.get() and not Path(self.compare_path.get()).is_file():
+            messagebox.showerror("MIDI comparison", "Choose an existing MIDI to compare first.")
+            return
         if mode == "music" and self.musescore_export.get() and not Path(self.musescore_path.get()).is_file():
             messagebox.showerror("MuseScore export", "Choose your MuseScore executable first.")
             return
@@ -1071,6 +1092,8 @@ class Application(ttk.Frame):
         if mode == "music":
             model = imported_path if imported_path is not None else self.music_model.get()
             cmd.extend(["--model-path", model, *options])
+            if self.compare_enabled.get():
+                cmd.extend(["--compare-midi", self.compare_path.get()])
             if self.musescore_export.get():
                 cmd.extend(["--musescore", self.musescore_path.get()])
             if self.lint_notes.get():

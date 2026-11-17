@@ -41,12 +41,17 @@ class RepeatedRunsTests(unittest.TestCase):
                     app.lint_notes.set(True)
                     app.musescore_path.set(str(musescore))
                     app.musescore_export.set(True)
+                    reference = folder / "reference.mid"
+                    reference.touch()
+                    app.compare_path.set(str(reference))
+                    app.compare_enabled.set(True)
                     first_label = next(label for label, path in app.custom_models.items() if path == str(models[0]))
                     app.music_model.set(first_label)
                     app.mode_changed()
                     app.start()
                     command, _ = thread.call_args.kwargs["args"]
                     self.assertEqual(command[command.index("--model-path") + 1], str(models[0]))
+                    self.assertEqual(command[command.index("--compare-midi") + 1], str(reference))
                     self.assertIn("--lint-notes", command)
                     self.assertEqual(command[command.index("--musescore") + 1], str(musescore))
                     app.output_lock.unlink()
