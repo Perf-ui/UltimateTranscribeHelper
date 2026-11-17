@@ -1,6 +1,7 @@
 """Windows desktop interface for the Omnizart transcription tools."""
 import math
 import json
+import hashlib
 import os
 from pathlib import Path
 import queue
@@ -179,12 +180,36 @@ def read_imported_model():
         return None
 
 
+def read_imported_models():
+    """Read saved paths, including the original single-checkpoint format."""
+    try:
+        data = json.loads(model_settings_path().read_text(encoding="utf-8"))
+        paths = data.get("checkpoints", [])
+        if not isinstance(paths, list):
+            paths = []
+        previous = data.get("checkpoint")
+        if isinstance(previous, str) and previous not in paths:
+            paths.append(previous)
+        return list(dict.fromkeys(path for path in paths if isinstance(path, str)))
+    except (OSError, ValueError, AttributeError):
+        return []
+
+
+def imported_model_label(path):
+    normalized = os.path.normcase(os.path.abspath(path))
+    suffix = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:8]
+    return f"Imported: {Path(path).name} [{suffix}]"
+
+
 def remember_imported_model(path):
     settings = model_settings_path()
     settings.parent.mkdir(parents=True, exist_ok=True)
+    paths = read_imported_models()
+    if str(path) not in paths:
+        paths.append(str(path))
     temporary = settings.with_suffix(".tmp")
     try:
-        temporary.write_text(json.dumps({"checkpoint": str(path)}), encoding="utf-8")
+        temporary.write_text(json.dumps({"checkpoint": str(path), "checkpoints": paths}), encoding="utf-8")
         temporary.replace(settings)
     finally:
         if temporary.exists():
@@ -225,6 +250,7 @@ class Application(ttk.Frame):
         self.mode = tk.StringVar(value=next(iter(MODES)))
         self.music_model = tk.StringVar(value="Piano")
         self.custom_model_path = read_imported_model()
+        self.custom_models = {imported_model_label(path): path for path in read_imported_models()}
         self.remove_vocals = tk.BooleanVar(value=False)
         self.include_vocals = tk.BooleanVar(value=False)
         self.separator_model = tk.StringVar(value="UVR MDX (recommended)")
@@ -292,7 +318,7 @@ class Application(ttk.Frame):
         modes.grid(row=2, column=0, sticky="ew")
         modes.bind("<<ComboboxSelected>>", self.mode_changed)
         self.model_picker = ttk.Combobox(card, textvariable=self.music_model,
-                                        values=["Piano", "PianoV2", "Pop", "Stream", "Basic Pitch", "Transkun (piano)", "Transkun V2 Aug", "Pedal Piano", CUSTOM_MODEL],
+                                        values=["Piano", "PianoV2", "Pop", "Stream", "Basic Pitch", "Transkun (piano)", "Transkun V2 Aug", "Pedal Piano", *self.custom_models, CUSTOM_MODEL],
                                         state="readonly", style="App.TCombobox")
         self.model_picker.grid(row=2, column=1, sticky="ew", padx=(14, 0))
         self.model_picker.bind("<<ComboboxSelected>>", self.mode_changed)
@@ -507,10 +533,14 @@ class Application(ttk.Frame):
                      CUSTOM_MODEL: (f"Imported checkpoint: {Path(self.custom_model_path).name}"
                                     if self.custom_model_path else
                                     "Select a compatible Omnizart checkpoint in Models & import.")}
-            self.description.set(hints[self.music_model.get()])
+            selected = self.music_model.get()
+            if selected in self.custom_models:
+                self.description.set(f"Imported checkpoint: {self.custom_models[selected]}")
+            else:
+                self.description.set(hints[selected])
             basic = self.music_model.get() == "Basic Pitch"
-            custom = self.music_model.get() == CUSTOM_MODEL
-            multi_instrument = self.music_model.get() in ("Pop", "Stream", CUSTOM_MODEL)
+            custom = selected == CUSTOM_MODEL or selected in self.custom_models
+            multi_instrument = selected in ("Pop", "Stream") or custom
             self.threshold_entries["instrument"].configure(state="normal" if multi_instrument or basic else "disabled")
             labels = {"onset": "Note onset", "duration": "Frame confidence" if basic else "Note duration",
                       "instrument": "Minimum note length (ms)" if basic else "Instrument confidence"}
@@ -884,7 +914,13 @@ class Application(ttk.Frame):
         except OSError:
             messagebox.showwarning("Model selected", "The model is available for this session, but its location "
                                    "could not be saved. You may need to select it again next time.", parent=dialog or self.master)
-        self.music_model.set(CUSTOM_MODEL)
+        label = imported_model_label(path)
+        self.custom_models[label] = path
+        current_values = list(self.model_picker.cget("values"))
+        if label not in current_values:
+            current_values.insert(current_values.index(CUSTOM_MODEL), label)
+            self.model_picker.configure(values=current_values)
+        self.music_model.set(label)
         self.mode_changed()
         if dialog is not None:
             dialog.destroy()
@@ -917,8 +953,10 @@ class Application(ttk.Frame):
         if mode == "beat" and source.suffix.lower() not in (".mid", ".midi"):
             messagebox.showerror("Input file", "Beat tracking requires a MIDI file.")
             return
-        if mode == "music" and self.music_model.get() == CUSTOM_MODEL and (
-                not self.custom_model_path or not validate_model_folder(self.custom_model_path)):
+        selected_model = self.music_model.get()
+        imported_path = self.custom_models.get(selected_model, self.custom_model_path if selected_model == CUSTOM_MODEL else None)
+        if mode == "music" and (selected_model == CUSTOM_MODEL or selected_model in self.custom_models) and (
+                not imported_path or not validate_model_folder(imported_path)):
             messagebox.showerror("Model", "Use Models & import to select a complete Omnizart music checkpoint.")
             return
         if mode == "music" and self.music_model.get() == "Pedal Piano":
@@ -959,7 +997,7 @@ class Application(ttk.Frame):
                 return
         try:
             values = {key: value.get() for key, value in self.thresholds.items()}
-            if self.music_model.get() not in ("Pop", "Stream", "Basic Pitch", CUSTOM_MODEL):
+            if self.music_model.get() not in ("Pop", "Stream", "Basic Pitch", CUSTOM_MODEL) and self.music_model.get() not in self.custom_models:
                 values["instrument"] = ""
             options = music_options(values, self.music_model.get()) if mode == "music" else []
             gpu_enabled = (self.use_gpu.get() and (mode == "stems" or
@@ -995,7 +1033,7 @@ class Application(ttk.Frame):
         cmd = [sys.executable, "-u", "-m", "omnizart.desktop.worker", mode,
                "transcribe", str(source.resolve()), "--output", str(output_base.resolve())]
         if mode == "music":
-            model = self.custom_model_path if self.music_model.get() == CUSTOM_MODEL else self.music_model.get()
+            model = imported_path if imported_path is not None else self.music_model.get()
             cmd.extend(["--model-path", model, *options])
             if self.smooth_notes.get():
                 cmd.extend(["--smooth-notes", "--smooth-gap-ms", self.smooth_gap.get().strip()])

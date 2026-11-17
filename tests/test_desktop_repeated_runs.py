@@ -10,6 +10,41 @@ from omnizart.desktop.app import Application
 
 
 class RepeatedRunsTests(unittest.TestCase):
+    def test_multiple_custom_models_can_be_selected(self):
+        with TemporaryDirectory() as directory:
+            folder = Path(directory)
+            audio = folder / "song.wav"
+            audio.touch()
+            models = [folder / "one" / "piano", folder / "two" / "piano"]
+            for model in models:
+                (model / "variables").mkdir(parents=True)
+                (model / "configurations.yaml").touch()
+                (model / "saved_model.pb").touch()
+                (model / "variables" / "variables.index").touch()
+                (model / "variables" / "variables.data-00000-of-00001").touch()
+            with patch("omnizart.desktop.app.folder_settings_path", return_value=folder / "folders.json"), \
+                 patch("omnizart.desktop.app.model_settings_path", return_value=folder / "models.json"), \
+                 patch("omnizart.desktop.app.filedialog.askdirectory", side_effect=[str(p) for p in models]), \
+                 patch("omnizart.desktop.app.threading.Thread") as thread:
+                root = tk.Tk()
+                root.withdraw()
+                try:
+                    app = Application(root)
+                    for _ in models:
+                        app.import_model()
+                    self.assertEqual(set(app.custom_models.values()), {str(p) for p in models})
+                    app.source.set(str(audio))
+                    app.destination.set(str(folder))
+                    first_label = next(label for label, path in app.custom_models.items() if path == str(models[0]))
+                    app.music_model.set(first_label)
+                    app.mode_changed()
+                    app.start()
+                    command, _ = thread.call_args.kwargs["args"]
+                    self.assertEqual(command[command.index("--model-path") + 1], str(models[0]))
+                    app.output_lock.unlink()
+                finally:
+                    root.destroy()
+
     def test_optional_uvr_models_disable_gpu_and_have_manager(self):
         with TemporaryDirectory() as directory:
             folder = Path(directory)

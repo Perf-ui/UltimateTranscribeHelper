@@ -23,7 +23,8 @@ in the separation model selector; both run offline on CPU. Select "Add a separat
 to transcribe the sung melody alongside the instruments in one MIDI file.
 This takes longer and both tracks can require editing. Models & import lists the bundled choices,
 links to their projects and lets you select a complete compatible Omnizart
-music checkpoint folder. Other model formats are not interchangeable.
+music checkpoint folder. Multiple imported checkpoints remain available in
+the model dropdown. Other model formats are not interchangeable.
 "Manage separation models" offers optional CPU UVR Vocal FT and Instrumental
 HQ5 checkpoints for download or import. These require the sherpa-onnx versions
 with metadata, and the app verifies each file before use.

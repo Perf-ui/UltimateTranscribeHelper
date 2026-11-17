@@ -8,11 +8,30 @@ from unittest.mock import patch
 import mido
 
 from omnizart.desktop.app import (midi_note_count, music_options, validate_model_folder, reserve_result_name,
-                                  remember_imported_model, read_imported_model)
+                                  remember_imported_model, read_imported_model, read_imported_models, imported_model_label)
 from omnizart.desktop.worker import _HideTensorFlowDeprecations
 
 
 class DesktopResultTests(unittest.TestCase):
+    def test_multiple_imports_preserve_legacy_model_and_disambiguate_names(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            first = root / "one" / "piano"
+            second = root / "two" / "piano"
+            for model in (first, second):
+                (model / "variables").mkdir(parents=True)
+                (model / "saved_model.pb").touch()
+                (model / "configurations.yaml").touch()
+                (model / "variables" / "variables.index").touch()
+                (model / "variables" / "variables.data-00000-of-00001").touch()
+            with patch.dict("os.environ", {"LOCALAPPDATA": str(root)}):
+                settings = root / "Omnizart" / "custom-model.json"
+                settings.parent.mkdir()
+                settings.write_text('{"checkpoint": ' + __import__("json").dumps(str(first)) + '}', encoding="utf-8")
+                remember_imported_model(second)
+                self.assertEqual(read_imported_models(), [str(first), str(second)])
+                self.assertEqual(read_imported_model(), str(second))
+                self.assertNotEqual(imported_model_label(first), imported_model_label(second))
     def test_repeated_runs_reserve_distinct_names_in_one_folder(self):
         with tempfile.TemporaryDirectory() as folder:
             directory = Path(folder)
