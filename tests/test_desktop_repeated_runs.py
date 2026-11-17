@@ -35,12 +35,15 @@ class RepeatedRunsTests(unittest.TestCase):
                     self.assertEqual(set(app.custom_models.values()), {str(p) for p in models})
                     app.source.set(str(audio))
                     app.destination.set(str(folder))
+                    self.assertFalse(app.lint_notes.get())
+                    app.lint_notes.set(True)
                     first_label = next(label for label, path in app.custom_models.items() if path == str(models[0]))
                     app.music_model.set(first_label)
                     app.mode_changed()
                     app.start()
                     command, _ = thread.call_args.kwargs["args"]
                     self.assertEqual(command[command.index("--model-path") + 1], str(models[0]))
+                    self.assertIn("--lint-notes", command)
                     app.output_lock.unlink()
                 finally:
                     root.destroy()

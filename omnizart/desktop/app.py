@@ -31,7 +31,7 @@ ACCENT = "#a49aff"
 FIELD = "#252d40"
 CUSTOM_MODEL = "Imported Omnizart model"
 RESULT_SUFFIXES = (".mid", ".midi", ".csv", "_beat.csv", "_down_beat.csv", "_f0.csv",
-                   "_trans.wav", "_accompaniment.wav", "_smoothed.mid", "_drums.wav",
+                   "_trans.wav", "_accompaniment.wav", "_smoothed.mid", "_review.txt", "_drums.wav",
                    "_bass.wav", "_other.wav", "_vocals.wav", "_guitar.wav", "_piano.wav")
 
 SETTING_HELP = {
@@ -256,6 +256,7 @@ class Application(ttk.Frame):
         self.separator_model = tk.StringVar(value="UVR MDX (recommended)")
         self.use_gpu = tk.BooleanVar(value=False)
         self.gpu_index = tk.StringVar(value="0")
+        self.lint_notes = tk.BooleanVar(value=False)
         self.smooth_notes = tk.BooleanVar(value=False)
         self.smooth_gap = tk.StringVar(value="30")
         self.remove_short_notes = tk.BooleanVar(value=False)
@@ -395,6 +396,10 @@ class Application(ttk.Frame):
                 "Real fast notes may also be removed; compare with the original.")
         Tooltip(self.short_entry, "Minimum note duration in milliseconds (greater than 0, up to 200). Default: 40 ms.")
 
+        self.lint_option = ttk.Checkbutton(card, text="Create note review report", variable=self.lint_notes, style="App.TCheckbutton")
+        self.lint_option.grid(row=16, column=0, sticky="w", pady=(10, 0))
+        Tooltip(self.lint_option, "Writes a separate text report of possible short or overlapping notes. Suggestions can be intentional; MIDI is unchanged.")
+
         self.settings_card = ttk.Frame(body, style="Card.TFrame", padding=(22, 12))
         self.settings_card.grid(row=2, column=0, sticky="ew", pady=(12, 0))
         self.settings_card.columnconfigure(0, weight=1)
@@ -512,6 +517,7 @@ class Application(ttk.Frame):
             self.vocal_option.configure(state="normal")
             self.separator_picker.configure(state="readonly")
             self.separation_models_button.configure(state="normal")
+            self.lint_option.configure(state="normal")
             self.smooth_option.configure(state="normal")
             self.short_option.configure(state="normal")
             self.update_smoothing_controls()
@@ -574,6 +580,7 @@ class Application(ttk.Frame):
             self.keep_option.configure(state="disabled")
             self.gpu_option.configure(state="disabled")
             self.gpu_entry.configure(state="disabled")
+            self.lint_option.configure(state="disabled")
             self.smooth_option.configure(state="disabled")
             self.smooth_entry.configure(state="disabled")
             self.short_option.configure(state="disabled")
@@ -1035,6 +1042,8 @@ class Application(ttk.Frame):
         if mode == "music":
             model = imported_path if imported_path is not None else self.music_model.get()
             cmd.extend(["--model-path", model, *options])
+            if self.lint_notes.get():
+                cmd.append("--lint-notes")
             if self.smooth_notes.get():
                 cmd.extend(["--smooth-notes", "--smooth-gap-ms", self.smooth_gap.get().strip()])
             if self.remove_short_notes.get():

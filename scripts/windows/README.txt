@@ -42,6 +42,11 @@ more than one GPU, try index 1 for the other adapter. Transkun, vocal transcript
 and the other transcription models still use CPU. A compatible DirectX 12
 driver is required; select CPU if GPU initialization fails.
 
+Optional "Create note review report" writes a separate `_review.txt` with
+timestamps for very short notes and overlapping same-pitch notes. The report
+contains suggestions, not confirmed errors. It does not change the MIDI and is
+off by default. Percussion channel notes are excluded.
+
 Optional "Smooth fragmented notes" writes a separate `_smoothed.mid` beside
 the original. It is off by default. It joins nearby same-pitch notes when at
 least one is short, using the chosen maximum gap in milliseconds; intentional

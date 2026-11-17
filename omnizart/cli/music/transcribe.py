@@ -25,12 +25,13 @@ music = LazyLoader("music", globals(), "omnizart.music")
 @click.option("--separator", type=click.Choice(["spleeter", "uvr", "vocal-ft", "inst-hq4", "inst-hq5"]), default="spleeter", help="Vocal separation model.")
 @click.option("--uvr-device", type=click.Choice(["cpu", "directml"]), default="cpu", help="Device for UVR separation only.")
 @click.option("--gpu-index", type=click.IntRange(min=0), default=0, help="DirectML adapter index.")
+@click.option("--lint-notes", is_flag=True, help="Save a non-destructive transcription review report.")
 @click.option("--smooth-notes", is_flag=True, help="Also save a conservatively smoothed MIDI copy.")
 @click.option("--smooth-gap-ms", type=click.FloatRange(0, 200), default=30, help="Maximum gap to join, in milliseconds.")
 @click.option("--remove-short-ms", type=click.FloatRange(0, 200), default=0, help="Also remove notes shorter than this duration; 0 disables.")
 def transcribe(input_audio, model_path, output, onset_th, duration_th, instrument_th, frame_th, minimum_note_ms,
                remove_vocals, save_accompaniment, include_vocals, separator, uvr_device, gpu_index,
-               smooth_notes, smooth_gap_ms, remove_short_ms):
+               lint_notes, smooth_notes, smooth_gap_ms, remove_short_ms):
     """Transcribe a single audio and output as a MIDI file.
 
     This will output a MIDI file with the same name as the given audio, except the
@@ -100,8 +101,7 @@ def transcribe(input_audio, model_path, output, onset_th, duration_th, instrumen
                 _transcribe(instrument_input, model_path, output, onset_th, duration_th, instrument_th, frame_th, minimum_note_ms)
     else:
         _transcribe(input_audio, model_path, output, onset_th, duration_th, instrument_th, frame_th, minimum_note_ms)
-    if smooth_notes or remove_short_ms:
-        from omnizart.desktop.smoothing import smooth_midi
+    if smooth_notes or remove_short_ms or lint_notes:
         target = Path(output)
         if target.is_dir():
             target = target / (Path(input_audio).stem + ".mid")
@@ -110,6 +110,16 @@ def transcribe(input_audio, model_path, output, onset_th, duration_th, instrumen
                 target = Path(str(target) + ".mid")
         elif target.suffix.lower() not in (".mid", ".midi"):
             target = Path(str(target) + ".mid")
+    if lint_notes:
+        from omnizart.desktop.lint import write_report
+        report = target.with_name(target.stem + "_review.txt")
+        try:
+            count = write_report(target, report)
+        except (OSError, ValueError) as exc:
+            raise click.ClickException(f"Original MIDI was saved, but review failed: {exc}") from exc
+        click.echo(f"Review report saved to {report} ({count} suggestions).")
+    if smooth_notes or remove_short_ms:
+        from omnizart.desktop.smoothing import smooth_midi
         cleaned = target.with_name(target.stem + "_smoothed.mid")
         try:
             merged = smooth_midi(target, cleaned, smooth_gap_ms, remove_short_ms, join_notes=smooth_notes)
