@@ -19,6 +19,7 @@ MODES = {
     "Vocal notes": ("vocal", "Audio", "MIDI + CSV"),
     "Vocal pitch contour": ("vocal-contour", "Audio", "CSV + WAV"),
     "Beats from MIDI": ("beat", "MIDI", "MIDI + CSV"),
+    "Separate stems (audio)": ("stems", "Audio", "Six WAV stems"),
 }
 
 BG = "#101421"
@@ -29,7 +30,8 @@ ACCENT = "#a49aff"
 FIELD = "#252d40"
 CUSTOM_MODEL = "Imported Omnizart model"
 RESULT_SUFFIXES = (".mid", ".midi", ".csv", "_beat.csv", "_down_beat.csv", "_f0.csv",
-                   "_trans.wav", "_accompaniment.wav", "_smoothed.mid")
+                   "_trans.wav", "_accompaniment.wav", "_smoothed.mid", "_drums.wav",
+                   "_bass.wav", "_other.wav", "_vocals.wav", "_guitar.wav", "_piano.wav")
 
 SETTING_HELP = {
     "onset": "Controls how strong a note's start must be. Lower values may detect quieter notes, "
@@ -191,7 +193,7 @@ def remember_imported_model(path):
 
 def music_options(values, model="Piano"):
     """Validate optional model thresholds and produce CLI arguments."""
-    if model in ("Transkun (piano)", "Pedal Piano"):
+    if model in ("Transkun (piano)", "Transkun V2 Aug", "Pedal Piano"):
         return []
     result = []
     specs = (("onset", "Note onset", 1, "--onset-th"),
@@ -290,7 +292,7 @@ class Application(ttk.Frame):
         modes.grid(row=2, column=0, sticky="ew")
         modes.bind("<<ComboboxSelected>>", self.mode_changed)
         self.model_picker = ttk.Combobox(card, textvariable=self.music_model,
-                                        values=["Piano", "PianoV2", "Pop", "Stream", "Basic Pitch", "Transkun (piano)", "Pedal Piano", CUSTOM_MODEL],
+                                        values=["Piano", "PianoV2", "Pop", "Stream", "Basic Pitch", "Transkun (piano)", "Transkun V2 Aug", "Pedal Piano", CUSTOM_MODEL],
                                         state="readonly", style="App.TCombobox")
         self.model_picker.grid(row=2, column=1, sticky="ew", padx=(14, 0))
         self.model_picker.bind("<<ComboboxSelected>>", self.mode_changed)
@@ -319,11 +321,16 @@ class Application(ttk.Frame):
                 "This takes longer, and both tracks may need editing.")
         ttk.Label(card, text="Separation model", style="CardLabel.TLabel").grid(row=11, column=0, sticky="w", pady=(10, 2))
         self.separator_picker = ttk.Combobox(card, textvariable=self.separator_model,
-                                             values=["UVR MDX (recommended)", "Spleeter (legacy)"],
+                                             values=["UVR MDX (recommended)", "UVR Vocal FT (CPU)",
+                                                     "UVR Instrumental HQ5 (CPU)", "Spleeter (legacy)"],
                                              state="readonly", style="App.TCombobox")
         self.separator_picker.grid(row=12, column=0, sticky="ew")
-        Tooltip(self.separator_picker, "Both models run locally. UVR can optionally use a GPU; results vary by recording.")
+        Tooltip(self.separator_picker, "All models run locally. The bundled UVR MDX model can optionally use a GPU. "
+                "The other UVR models need a separate download and run on CPU.")
         self.separator_picker.bind("<<ComboboxSelected>>", self.update_separation_controls)
+        self.separation_models_button = ttk.Button(card, text="Manage separation models...", style="Link.TButton",
+                                                   command=self.show_separation_models)
+        self.separation_models_button.grid(row=12, column=1, sticky="w", padx=(14, 0))
         self.gpu_option = ttk.Checkbutton(card, text="Use GPU for UVR separation (DirectML)",
                                           variable=self.use_gpu, command=self.update_separation_controls,
                                           style="App.TCheckbutton")
@@ -333,7 +340,7 @@ class Application(ttk.Frame):
         ttk.Label(self.gpu_frame, text="GPU index", style="CardLabel.TLabel").pack(side="left", padx=(0, 6))
         self.gpu_entry = ttk.Entry(self.gpu_frame, textvariable=self.gpu_index, width=4, style="App.TEntry")
         self.gpu_entry.pack(side="left")
-        Tooltip(self.gpu_option, "Optional GPU acceleration for UVR separation only; piano and vocal transcription still use CPU. "
+        Tooltip(self.gpu_option, "Optional GPU acceleration for UVR or six-stem separation; piano and vocal transcription still use CPU. "
                 "Compatible DirectX 12 NVIDIA, AMD and Intel GPUs can work. CPU remains the default.")
         Tooltip(self.gpu_entry, "DirectML adapter index, normally 0. On computers with multiple GPUs, try 1 if 0 selects the wrong one.")
         self.smooth_option = ttk.Checkbutton(card, text="Smooth fragmented notes (keep original MIDI)",
@@ -463,6 +470,7 @@ class Application(ttk.Frame):
 
     def mode_changed(self, event=None):
         mode, input_kind, output_kind = MODES[self.mode.get()]
+        self.start_button.configure(text="Separate audio  →" if mode == "stems" else "Start transcription  →")
         if mode == "music":
             selected_model = self.music_model.get()
             if selected_model != self.current_model:
@@ -477,11 +485,12 @@ class Application(ttk.Frame):
             self.separation_option.configure(state="normal")
             self.vocal_option.configure(state="normal")
             self.separator_picker.configure(state="readonly")
+            self.separation_models_button.configure(state="normal")
             self.smooth_option.configure(state="normal")
             self.short_option.configure(state="normal")
             self.update_smoothing_controls()
             self.update_separation_controls()
-            is_fixed_piano = self.music_model.get() in ("Transkun (piano)", "Pedal Piano")
+            is_fixed_piano = self.music_model.get() in ("Transkun (piano)", "Transkun V2 Aug", "Pedal Piano")
             self.advanced_button.configure(state="disabled" if is_fixed_piano else "normal")
             if is_fixed_piano:
                 self.advanced.grid_remove()
@@ -493,6 +502,7 @@ class Application(ttk.Frame):
                      "Stream": "Attempts to identify different instruments in a recording.",
                      "Basic Pitch": "A separate model for individual instruments and voice; outputs MIDI pitch bends.",
                      "Transkun (piano)": "A piano-specific model. Uses CPU and may take longer on full songs.",
+                     "Transkun V2 Aug": "Alternative Transkun piano model. Select Models & import to download or import it.",
                      "Pedal Piano": "Piano model with sustain-pedal estimates. Download or import it in Models & import.",
                      CUSTOM_MODEL: (f"Imported checkpoint: {Path(self.custom_model_path).name}"
                                     if self.custom_model_path else
@@ -526,10 +536,11 @@ class Application(ttk.Frame):
                                               "Instrument confidence is used by Pop and Stream.")
         else:
             self.model_picker.configure(state="disabled")
-            self.models_button.configure(state="disabled")
+            self.models_button.configure(state="normal" if mode == "stems" else "disabled")
             self.separation_option.configure(state="disabled")
             self.vocal_option.configure(state="disabled")
             self.separator_picker.configure(state="disabled")
+            self.separation_models_button.configure(state="disabled")
             self.keep_option.configure(state="disabled")
             self.gpu_option.configure(state="disabled")
             self.gpu_entry.configure(state="disabled")
@@ -542,6 +553,9 @@ class Application(ttk.Frame):
             self.advanced_open = False
             self.advanced_button.configure(text="Advanced settings   +")
             self.description.set(f"Input: {input_kind}  •  Output: {output_kind}. This mode uses its model defaults.")
+            if mode == "stems":
+                self.description.set("Separate drums, bass, vocals, guitar, piano and other into WAV files. Experimental.")
+                self.update_separation_controls()
 
     def toggle_advanced(self):
         self.advanced_open = not self.advanced_open
@@ -556,9 +570,12 @@ class Application(ttk.Frame):
         self.keep_option.configure(state="normal" if enabled else "disabled")
         uvr = (self.mode.get() == "Piano and instruments" and
                (self.remove_vocals.get() or self.include_vocals.get()) and
-               self.separator_model.get().startswith("UVR"))
-        self.gpu_option.configure(state="normal" if uvr else "disabled")
-        self.gpu_entry.configure(state="normal" if uvr and self.use_gpu.get() else "disabled")
+               self.separator_model.get() == "UVR MDX (recommended)")
+        stems = self.mode.get() == "Separate stems (audio)"
+        self.gpu_option.configure(state="normal" if uvr or stems else "disabled",
+                                  text="Use GPU for separation (DirectML)" if stems else
+                                       "Use GPU for UVR separation (DirectML)")
+        self.gpu_entry.configure(state="normal" if (uvr or stems) and self.use_gpu.get() else "disabled")
 
     def update_vocal_controls(self):
         if self.include_vocals.get():
@@ -593,6 +610,12 @@ class Application(ttk.Frame):
             self.save_folders(input_folder=self.input_folder)
 
     def show_models(self):
+        if self.mode.get() == "Separate stems (audio)":
+            self.show_six_stem_model()
+            return
+        if self.mode.get() == "Piano and instruments" and self.music_model.get() == "Transkun V2 Aug":
+            self.show_transkun_aug_model()
+            return
         dialog = tk.Toplevel(self.master)
         dialog.title("Models & import")
         dialog.configure(bg=BG)
@@ -602,7 +625,7 @@ class Application(ttk.Frame):
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text="Models & import", style="Title.TLabel").pack(anchor="w")
         ttk.Label(frame, text="Included: Piano, PianoV2, Pop, Stream, Basic Pitch and Transkun.\n"
-                  "Choose a model in the drop-down. For solo piano, compare Piano and Transkun.",
+                  "Choose a model in the drop-down. Select Transkun V2 Aug to manage its optional model.",
                   style="Subtitle.TLabel", wraplength=555, justify="left").pack(anchor="w", pady=(12, 16))
         ttk.Label(frame, text="Import a complete Omnizart music checkpoint folder containing configurations.yaml, "
                   "saved_model.pb and its variables. The release download supplies weights only; it does not include "
@@ -671,6 +694,182 @@ class Application(ttk.Frame):
         ttk.Button(frame, text="Open Transkun project page ↗", style="RootLink.TButton",
                    command=lambda: webbrowser.open("https://github.com/Yujia-Yan/Transkun")).pack(anchor="w")
 
+    def show_six_stem_model(self):
+        dialog = tk.Toplevel(self.master)
+        dialog.title("Six-stem model")
+        dialog.configure(bg=BG)
+        dialog.geometry("620x280")
+        dialog.transient(self.master)
+        frame = ttk.Frame(dialog, style="Root.TFrame", padding=24)
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text="Six-stem model", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(frame, text="Experimental HT-Demucs model: drums, bass, other, vocals, guitar and piano. "
+                  "Download the 130 MiB model or import an existing copy. The file is verified before use.",
+                  style="Subtitle.TLabel", wraplength=550, justify="left").pack(anchor="w", pady=(12, 12))
+        state = tk.StringVar(value="The model is stored in your local Omnizart models folder.")
+        controls = ttk.Frame(frame, style="Root.TFrame")
+        controls.pack(anchor="w")
+        download = ttk.Button(controls, text="Download six-stem model", style="Secondary.TButton")
+        import_button = ttk.Button(controls, text="Import model...", style="Secondary.TButton")
+        download.pack(side="left", padx=(0, 8))
+        import_button.pack(side="left")
+        ttk.Label(frame, textvariable=state, style="Subtitle.TLabel", wraplength=550).pack(anchor="w", pady=(10, 0))
+        ttk.Button(frame, text="Open model page ↗", style="RootLink.TButton",
+                   command=lambda: webbrowser.open("https://huggingface.co/StemSplitio/htdemucs-6s-onnx")).pack(anchor="w")
+
+        def prepare(source=None):
+            from omnizart.desktop.six_stems import install_model
+            results = queue.Queue()
+            download.configure(state="disabled")
+            import_button.configure(state="disabled")
+            state.set("Preparing model; please wait. Download can take several minutes.")
+            def work():
+                try:
+                    results.put((True, str(install_model(source))))
+                except Exception as exc:
+                    results.put((False, str(exc)))
+            def poll_model():
+                try:
+                    ok, result = results.get_nowait()
+                except queue.Empty:
+                    dialog.after(250, poll_model)
+                    return
+                download.configure(state="normal")
+                import_button.configure(state="normal")
+                state.set("Six-stem model is ready." if ok else "Model preparation failed: " + result)
+            threading.Thread(target=work, daemon=True).start()
+            dialog.after(250, poll_model)
+
+        def import_file():
+            path = filedialog.askopenfilename(parent=dialog, title="Choose the six-stem ONNX model",
+                                              filetypes=[("ONNX model", "*.onnx"), ("All files", "*.*")])
+            if path:
+                prepare(path)
+        download.configure(command=prepare)
+        import_button.configure(command=import_file)
+
+    def show_transkun_aug_model(self):
+        dialog = tk.Toplevel(self.master)
+        dialog.title("Transkun V2 Aug")
+        dialog.configure(bg=BG)
+        dialog.geometry("620x290")
+        dialog.transient(self.master)
+        frame = ttk.Frame(dialog, style="Root.TFrame", padding=24)
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text="Transkun V2 Aug", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(frame, text="An alternative piano checkpoint trained with augmentation. "
+                  "Download the official 48 MiB archive or import an existing copy. "
+                  "The archive and its files are verified before use.", style="Subtitle.TLabel",
+                  wraplength=550, justify="left").pack(anchor="w", pady=(12, 12))
+        state = tk.StringVar(value="The model is stored in your local Omnizart models folder.")
+        controls = ttk.Frame(frame, style="Root.TFrame")
+        controls.pack(anchor="w")
+        download = ttk.Button(controls, text="Download Transkun V2 Aug", style="Secondary.TButton")
+        import_button = ttk.Button(controls, text="Import model archive...", style="Secondary.TButton")
+        download.pack(side="left", padx=(0, 8))
+        import_button.pack(side="left")
+        ttk.Label(frame, textvariable=state, style="Subtitle.TLabel", wraplength=550).pack(anchor="w", pady=(10, 0))
+        ttk.Button(frame, text="Open model download page ↗", style="RootLink.TButton",
+                   command=lambda: webbrowser.open("https://drive.google.com/file/d/1Hg5ua8vYdtg1Y-MnXD0mLyhRK9Srd7hm/view")).pack(anchor="w")
+
+        def prepare(source=None):
+            from omnizart.desktop.transkun_aug import install_model
+            results = queue.Queue()
+            download.configure(state="disabled")
+            import_button.configure(state="disabled")
+            state.set("Preparing model; please wait. Download can take several minutes.")
+            def work():
+                try:
+                    results.put((True, str(install_model(source))))
+                except Exception as exc:
+                    results.put((False, str(exc)))
+            def poll_model():
+                try:
+                    ok, result = results.get_nowait()
+                except queue.Empty:
+                    dialog.after(250, poll_model)
+                    return
+                download.configure(state="normal")
+                import_button.configure(state="normal")
+                state.set("Transkun V2 Aug is ready." if ok else "Model preparation failed: " + result)
+            threading.Thread(target=work, daemon=True).start()
+            dialog.after(250, poll_model)
+
+        def import_file():
+            path = filedialog.askopenfilename(parent=dialog, title="Choose the official Transkun V2 Aug archive",
+                                              filetypes=[("Model archive", "*.zip"), ("All files", "*.*")])
+            if path:
+                prepare(path)
+        download.configure(command=prepare)
+        import_button.configure(command=import_file)
+
+    def show_separation_models(self):
+        dialog = tk.Toplevel(self.master)
+        dialog.title("Separation models")
+        dialog.configure(bg=BG)
+        dialog.geometry("650x330")
+        dialog.transient(self.master)
+        frame = ttk.Frame(dialog, style="Root.TFrame", padding=24)
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text="Separation models", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(frame, text="Optional sherpa-onnx UVR models run on CPU. Download or import the selected "
+                  "metadata-enabled model (about 60–65 MiB); the file is verified before use. "
+                  "Different models can produce different results on the same recording.",
+                  style="Subtitle.TLabel", wraplength=570, justify="left").pack(anchor="w", pady=(12, 12))
+        labels = {"UVR Vocal FT (CPU)": "vocal-ft", "UVR Instrumental HQ5 (CPU)": "inst-hq5"}
+        current = self.separator_model.get()
+        selected = tk.StringVar(value=current if current in labels else next(iter(labels)))
+        ttk.Combobox(frame, textvariable=selected, values=list(labels), state="readonly",
+                     style="App.TCombobox").pack(anchor="w", fill="x", pady=(0, 8))
+        state = tk.StringVar(value="The models are stored in your local Omnizart models folder.")
+        controls = ttk.Frame(frame, style="Root.TFrame")
+        controls.pack(anchor="w")
+        download = ttk.Button(controls, text="Download selected model", style="Secondary.TButton")
+        import_button = ttk.Button(controls, text="Import model...", style="Secondary.TButton")
+        download.pack(side="left", padx=(0, 8))
+        import_button.pack(side="left")
+        ttk.Label(frame, textvariable=state, style="Subtitle.TLabel", wraplength=570).pack(anchor="w", pady=(10, 0))
+        ttk.Button(frame, text="Open compatible model list ↗", style="RootLink.TButton",
+                   command=lambda: webbrowser.open("https://k2-fsa.github.io/sherpa/onnx/source-separation/models.html#uvr")).pack(anchor="w")
+
+        def prepare(source=None):
+            from omnizart.desktop.sherpa_uvr import install_model
+            label = selected.get()
+            model = labels[label]
+            results = queue.Queue()
+            download.configure(state="disabled")
+            import_button.configure(state="disabled")
+            state.set("Preparing model; please wait. Download can take several minutes.")
+            def work():
+                try:
+                    results.put((True, str(install_model(model, source))))
+                except Exception as exc:
+                    results.put((False, str(exc)))
+            def poll_model():
+                try:
+                    ok, result = results.get_nowait()
+                except queue.Empty:
+                    dialog.after(250, poll_model)
+                    return
+                download.configure(state="normal")
+                import_button.configure(state="normal")
+                if ok:
+                    self.separator_model.set(label)
+                    self.update_separation_controls()
+                    state.set(label + " is ready and selected.")
+                else:
+                    state.set("Model preparation failed: " + result)
+            threading.Thread(target=work, daemon=True).start()
+            dialog.after(250, poll_model)
+
+        def import_file():
+            path = filedialog.askopenfilename(parent=dialog, title="Choose the selected sherpa-onnx UVR model",
+                                              filetypes=[("ONNX model", "*.onnx"), ("All files", "*.*")])
+            if path:
+                prepare(path)
+        download.configure(command=prepare)
+        import_button.configure(command=import_file)
+
     def import_model(self, dialog=None):
         path = filedialog.askdirectory(title="Choose an Omnizart music checkpoint folder", parent=dialog or self.master)
         if not path:
@@ -732,13 +931,40 @@ class Application(ttk.Frame):
             if not available:
                 messagebox.showerror("Pedal Piano model", "Open Models & import to download or import the Pedal Piano checkpoint.")
                 return
+        if mode == "music" and self.music_model.get() == "Transkun V2 Aug":
+            from omnizart.desktop.transkun_aug import model_path, ARCHIVE_SIZE
+            checkpoint = model_path()
+            try:
+                available = checkpoint.is_file() and checkpoint.stat().st_size == ARCHIVE_SIZE
+            except OSError:
+                available = False
+            if not available:
+                messagebox.showerror("Transkun V2 Aug", "Open Models & import to download or import the model archive.")
+                return
+        if mode == "stems":
+            from omnizart.desktop.six_stems import model_path, MODEL_SIZE
+            checkpoint = model_path()
+            try:
+                available = checkpoint.is_file() and checkpoint.stat().st_size == MODEL_SIZE
+            except OSError:
+                available = False
+            if not available:
+                messagebox.showerror("Six-stem model", "Open Models & import to download or import the six-stem model.")
+                return
+        optional_separators = {"UVR Vocal FT (CPU)": "vocal-ft", "UVR Instrumental HQ5 (CPU)": "inst-hq5"}
+        if mode == "music" and (self.remove_vocals.get() or self.include_vocals.get()) and self.separator_model.get() in optional_separators:
+            from omnizart.desktop.sherpa_uvr import model_path
+            if not model_path(optional_separators[self.separator_model.get()]).is_file():
+                messagebox.showerror("Separation model", "Use Manage separation models to download or import the selected model.")
+                return
         try:
             values = {key: value.get() for key, value in self.thresholds.items()}
             if self.music_model.get() not in ("Pop", "Stream", "Basic Pitch", CUSTOM_MODEL):
                 values["instrument"] = ""
             options = music_options(values, self.music_model.get()) if mode == "music" else []
-            gpu_enabled = (mode == "music" and (self.remove_vocals.get() or self.include_vocals.get()) and
-                           self.separator_model.get().startswith("UVR") and self.use_gpu.get())
+            gpu_enabled = (self.use_gpu.get() and (mode == "stems" or
+                           (mode == "music" and (self.remove_vocals.get() or self.include_vocals.get()) and
+                            self.separator_model.get() == "UVR MDX (recommended)")))
             gpu_index = self.gpu_index.get().strip()
             if gpu_enabled and (not gpu_index.isdecimal() or int(gpu_index) > 99):
                 raise ValueError("GPU index must be a whole number between 0 and 99.")
@@ -778,13 +1004,17 @@ class Application(ttk.Frame):
             if self.include_vocals.get():
                 cmd.append("--include-vocals")
             if self.include_vocals.get() or self.remove_vocals.get():
-                cmd.extend(["--separator", "uvr" if self.separator_model.get().startswith("UVR") else "spleeter"])
+                separator = {"UVR MDX (recommended)": "uvr", "UVR Vocal FT (CPU)": "vocal-ft",
+                             "UVR Instrumental HQ5 (CPU)": "inst-hq5", "Spleeter (legacy)": "spleeter"}[self.separator_model.get()]
+                cmd.extend(["--separator", separator])
                 if gpu_enabled:
                     cmd.extend(["--uvr-device", "directml", "--gpu-index", gpu_index])
             if self.remove_vocals.get():
                 cmd.append("--remove-vocals")
                 if self.keep_accompaniment.get():
                     cmd.append("--save-accompaniment")
+        elif mode == "stems" and gpu_enabled:
+            cmd.extend(["--device", "directml", "--gpu-index", gpu_index])
         self.log.configure(state="normal")
         self.log.delete("1.0", "end")
         self.log.configure(state="disabled")
@@ -795,7 +1025,8 @@ class Application(ttk.Frame):
         self.output_folder = target
         self.output_base = output_base
         self.output_lock = output_lock
-        self.status.set("Transcribing on your computer. This can take several minutes.")
+        self.status.set("Separating audio on your computer. This can take several minutes." if mode == "stems"
+                        else "Transcribing on your computer. This can take several minutes.")
         self.progress.grid()
         self.progress.start(12)
         threading.Thread(target=self.run, args=(cmd, target), daemon=True).start()
@@ -837,6 +1068,10 @@ class Application(ttk.Frame):
                 if kind == "error":
                     self.status.set("Could not start transcription.")
                     messagebox.showerror("Transcription failed", value)
+                elif value[0] == 0 and self.active_mode == "stems" and self.output_base and not all(
+                        Path(str(self.output_base) + "_" + stem + ".wav").is_file()
+                        for stem in ("drums", "bass", "other", "vocals", "guitar", "piano")):
+                    self.status.set("Some stem files are missing. Open details for more information.")
                 elif value[0] == 0 and self.output_base and any(
                         Path(str(self.output_base) + suffix).is_file() for suffix in RESULT_SUFFIXES):
                     try:
@@ -846,7 +1081,7 @@ class Application(ttk.Frame):
                     else:
                         if notes == 0:
                             self.status.set("No notes detected. Try Piano for solo piano, or adjust the thresholds.")
-                        elif notes is None and self.active_mode != "vocal-contour":
+                        elif notes is None and self.active_mode not in ("vocal-contour", "stems"):
                             self.status.set("Finished without a MIDI file. Open details to inspect the result.")
                         elif notes is None:
                             self.status.set("Finished. Your results are ready.")

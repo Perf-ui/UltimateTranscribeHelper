@@ -22,7 +22,7 @@ music = LazyLoader("music", globals(), "omnizart.music")
 @click.option("--remove-vocals", is_flag=True, help="Separate vocals before instrument transcription.")
 @click.option("--save-accompaniment", is_flag=True, help="Keep the separated accompaniment WAV.")
 @click.option("--include-vocals", is_flag=True, help="Add a separate vocal melody track to the MIDI.")
-@click.option("--separator", type=click.Choice(["spleeter", "uvr"]), default="spleeter", help="Vocal separation model.")
+@click.option("--separator", type=click.Choice(["spleeter", "uvr", "vocal-ft", "inst-hq5"]), default="spleeter", help="Vocal separation model.")
 @click.option("--uvr-device", type=click.Choice(["cpu", "directml"]), default="cpu", help="Device for UVR separation only.")
 @click.option("--gpu-index", type=click.IntRange(min=0), default=0, help="DirectML adapter index.")
 @click.option("--smooth-notes", is_flag=True, help="Also save a conservatively smoothed MIDI copy.")
@@ -49,7 +49,7 @@ def transcribe(input_audio, model_path, output, onset_th, duration_th, instrumen
         raise click.UsageError("--save-accompaniment requires --remove-vocals.")
     if uvr_device != "cpu" and (separator != "uvr" or not (remove_vocals or include_vocals)):
         raise click.UsageError("DirectML applies only to UVR vocal separation.")
-    if model_path in ("Transkun (piano)", "Pedal Piano"):
+    if model_path in ("Transkun (piano)", "Transkun V2 Aug", "Pedal Piano"):
         if any(value is not None for value in (onset_th, duration_th, instrument_th, frame_th, minimum_note_ms)):
             raise click.UsageError("These thresholds are not available for the selected piano model.")
     elif model_path == "Basic Pitch":
@@ -71,6 +71,9 @@ def transcribe(input_audio, model_path, output, onset_th, duration_th, instrumen
                 else:
                     separate_uvr(input_audio, separated, vocal_stem if include_vocals else None,
                                  device=uvr_device, gpu_index=gpu_index)
+            elif separator in ("vocal-ft", "inst-hq5"):
+                from omnizart.desktop.sherpa_uvr import separate as separate_sherpa_uvr
+                separate_sherpa_uvr(separator, input_audio, separated, vocal_stem if include_vocals else None)
             elif include_vocals:
                 separate_stems(input_audio, separated, vocal_stem)
             else:
@@ -102,7 +105,7 @@ def transcribe(input_audio, model_path, output, onset_th, duration_th, instrumen
         target = Path(output)
         if target.is_dir():
             target = target / (Path(input_audio).stem + ".mid")
-        elif model_path not in ("Basic Pitch", "Transkun (piano)", "Pedal Piano") and not include_vocals:
+        elif model_path not in ("Basic Pitch", "Transkun (piano)", "Transkun V2 Aug", "Pedal Piano") and not include_vocals:
             if not str(target).endswith(".mid"):
                 target = Path(str(target) + ".mid")
         elif target.suffix.lower() not in (".mid", ".midi"):
@@ -116,6 +119,10 @@ def transcribe(input_audio, model_path, output, onset_th, duration_th, instrumen
 
 
 def _transcribe(input_audio, model_path, output, onset_th, duration_th, instrument_th, frame_th, minimum_note_ms):
+    if model_path == "Transkun V2 Aug":
+        from omnizart.desktop.transkun_aug import transcribe as transkun_aug_transcribe
+        transkun_aug_transcribe(input_audio, output)
+        return
     if model_path == "Pedal Piano":
         from omnizart.desktop.pedal_piano import transcribe as pedal_piano_transcribe
         pedal_piano_transcribe(input_audio, output)

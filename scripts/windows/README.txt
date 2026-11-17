@@ -24,10 +24,15 @@ to transcribe the sung melody alongside the instruments in one MIDI file.
 This takes longer and both tracks can require editing. Models & import lists the bundled choices,
 links to their projects and lets you select a complete compatible Omnizart
 music checkpoint folder. Other model formats are not interchangeable.
+"Manage separation models" offers optional CPU UVR Vocal FT and Instrumental
+HQ5 checkpoints for download or import. These require the sherpa-onnx versions
+with metadata, and the app verifies each file before use.
 
 Pedal Piano is an optional CPU model that predicts piano notes and sustain-pedal
 events. In Models & import, download its checkpoint (about 164 MiB) or import
 the official checkpoint file. The app verifies the model before loading it.
+Transkun V2 Aug is another optional piano checkpoint. Select it in the model
+dropdown, then open Models & import to download or import its official archive.
 
 Optional GPU acceleration is available for UVR separation via DirectML on
 compatible NVIDIA, AMD and Intel graphics. Enable "Use GPU for UVR separation";
@@ -44,6 +49,12 @@ vocal tracks and passages with sustain or pitch-bend activity are left alone.
 Some files have no eligible fragments and will sound unchanged.
 The separate "Remove very short notes" option is also off by default and
 can remove genuine short notes. Both options write a separate cleaned MIDI.
+
+Experimental "Separate stems (audio)" uses an optional HT-Demucs ONNX model
+to create separate drums, bass, other, vocals, guitar and piano WAV files.
+Choose Models & import to download or import the model first. GPU is optional;
+the separated piano can be imperfect. Open a resulting WAV as input to
+transcribe that stem. This mode does not automatically create MIDI files.
 
 For the project licence see LICENSE. Third-party components retain their own
 licences and notices in the runtime and model directories.

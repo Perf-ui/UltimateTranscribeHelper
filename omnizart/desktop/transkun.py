@@ -4,7 +4,7 @@ import sys
 import warnings
 
 
-def transcribe(input_audio, output):
+def transcribe(input_audio, output, weight=None, config=None):
     import soundfile
     import transkun.transcribe as transkun
 
@@ -25,6 +25,8 @@ def transcribe(input_audio, output):
     old_argv = sys.argv
     try:
         sys.argv = ["transkun", str(input_audio), str(target), "--device", "cpu"]
+        if weight is not None and config is not None:
+            sys.argv.extend(["--weight", str(weight), "--conf", str(config)])
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message="You are using `torch.load` with `weights_only=False`.*", category=FutureWarning)
             warnings.filterwarnings("ignore", message="torch.utils.checkpoint: the use_reentrant parameter.*", category=UserWarning)

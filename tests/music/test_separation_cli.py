@@ -9,6 +9,16 @@ from omnizart.cli.music.transcribe import transcribe
 
 
 class SeparationCliTests(unittest.TestCase):
+    def test_optional_uvr_model_is_routed(self):
+        with TemporaryDirectory() as directory:
+            audio = Path(directory) / "song.wav"
+            audio.touch()
+            with patch("omnizart.desktop.sherpa_uvr.separate") as separator, \
+                    patch("omnizart.cli.music.transcribe._transcribe"):
+                result = CliRunner().invoke(transcribe, [str(audio), "--remove-vocals", "--separator", "vocal-ft"])
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertEqual(separator.call_args.args[0], "vocal-ft")
+
     def test_accompaniment_uses_the_explicit_run_name(self):
         with TemporaryDirectory() as directory:
             folder = Path(directory)

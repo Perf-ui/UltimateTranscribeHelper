@@ -23,6 +23,7 @@ LAZY_COMMANDS = {
     "beat": ("omnizart.cli.beat", "beat", "Beat tracking on symbolic domain."),
     "patch-cnn": ("omnizart.cli.patch_cnn", "patch_cnn", "Trancribes vocal melody (frame-based) in the audio."),
     "transcribe": ("omnizart.cli.transcribe", "transcribe", "Transcribe a single audio."),
+    "stems": ("omnizart.cli.stems", "stems", "Separate audio into six WAV stems."),
 }
 
 
@@ -32,7 +33,7 @@ SUB_COMMAND_GROUP = [
             "music", "chord", "drum", "vocal", "vocal-contour", "beat", "patch-cnn", "transcribe"
         ]
     },
-    {"Utilities": ["download-checkpoints", "download-dataset", "synth"]}
+    {"Utilities": ["stems", "download-checkpoints", "download-dataset", "synth"]}
 ]
 
 
