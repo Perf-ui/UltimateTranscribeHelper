@@ -42,6 +42,29 @@ Its web/service architecture and notation stack would need adaptation for a
 local Windows application. Two-hand arrangement and score export are later
 features, not a shortcut to improved transcription accuracy.
 
+The [transcription dispatcher](https://github.com/Oh-Sheet-Team/oh-sheet/blob/main/backend/services/transcribe.py)
+has several paths: optional Demucs four-stem separation followed by Basic
+Pitch per stem; Kong/ByteDance pedal-aware piano inference on a piano-like
+stem; and a single-mix Basic Pitch fallback. Our Basic Pitch and optional UVR
+two-stem separation already overlap with the first idea, and our optional
+Pedal Piano adapter uses the same Kong inference package. We have not tested
+our adapter with its actual checkpoint, and have not compared accuracy against
+Oh Sheet. Demucs may improve isolation on some mixes but can remove or distort
+notes, costs additional resources, and its model licences require review.
+
+The optional [AMT-APC path](https://github.com/Oh-Sheet-Team/oh-sheet/blob/main/backend/services/transcribe_amt_apc.py)
+generates a piano cover arrangement, which is a different target from recovering
+the original played notes. The [upstream project](https://github.com/310hz/amt-apc)
+distributes a checkpoint and command-line inference; verify its actual API,
+checkpoint terms and Windows CPU/GPU behavior before proposing integration.
+Oh Sheet also describes cleanup for fragmented sustains and likely octave or
+tail artifacts. Those heuristics can discard real notes, so evaluate them
+against reference MIDI before adding independent, optional controls.
+
+Other useful candidates are an interactive piano roll, existing-MIDI import,
+editable hand assignment, MusicXML/PDF export, and playback. Prioritize these
+by user needs and assess any extra dependencies and licence obligations.
+
 ## First feature: optional MIDI cleanup
 
 The independently implemented first pass merges nearby same-pitch fragments on
