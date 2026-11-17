@@ -11,6 +11,7 @@ import sys
 import time
 import zipfile
 import urllib.request
+import urllib.parse
 import http.cookiejar
 
 
@@ -30,6 +31,8 @@ class GDFileAccessLimited(Exception):
 def format_byte(size, digit=2):
     """Format the given byte size into human-readable string."""
     rounding = f".{digit}f"
+    if size < 1:
+        return f"{size:{rounding}}B"
     for idx, (bound, unit) in enumerate(SIZE_MAPPING):
         if size <= bound:
             bound, unit = SIZE_MAPPING[idx - 1]
@@ -172,6 +175,14 @@ def download_large_file_from_google_drive(url, file_length=None, save_path="./",
         # The given 'url' is actually a file ID.
         assert len(url) == 33
         url = f"https://drive.google.com/uc?export=download&id={url}"
+
+    # Release assets and other ordinary URLs do not use Drive's confirmation
+    # page. In particular, reading a GitHub model response as a page loads the
+    # entire checkpoint into memory before downloading it a second time.
+    host = (urllib.parse.urlparse(url).hostname or "").lower()
+    if host not in {"drive.google.com", "docs.google.com"}:
+        return download(url, file_length=file_length, save_path=save_path,
+                        save_name=save_name, unzip=unzip)
 
     cookie_jar = http.cookiejar.MozillaCookieJar()
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookie_jar))

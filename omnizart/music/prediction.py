@@ -79,28 +79,22 @@ def create_batches(feature, timesteps, b_size=8, step_size=10):
         List of input batches.
     """
     step_size = max(1, min(timesteps, step_size))
-    batches = []
-    batch = []
-    cur_len = 0
-    for idx in range(0, len(feature)-timesteps, step_size):  # noqa: E226
-        feat = feature[idx:idx+timesteps]  # noqa: E226
-        batch.append(feat)
-        cur_len += timesteps
-        if len(batch) == b_size:
-            batches.append(batch)
-            batch = []
-
-    feat = feature[cur_len:]
-    if len(feat) < timesteps:
-        pad = np.zeros((timesteps - len(feat),) + feat.shape[1:])
-        feat = np.concatenate([feat, pad])
-
-    if len(batches[-1]) < b_size:
-        batches[-1].append(feat)
-    else:
-        batches.append([feat])
-
-    return batches
+    if not len(feature):
+        raise ValueError("Cannot transcribe audio with no feature frames")
+    if b_size < 1 or timesteps < 1:
+        raise ValueError("Batch size and timesteps must be positive")
+    slices = []
+    start = 0
+    while True:
+        feat = feature[start:start + timesteps]
+        if len(feat) < timesteps:
+            pad = np.zeros((timesteps - len(feat),) + feat.shape[1:], dtype=feature.dtype)
+            feat = np.concatenate([feat, pad])
+        slices.append(feat)
+        if start + timesteps >= len(feature):
+            break
+        start += step_size
+    return [slices[i:i + b_size] for i in range(0, len(slices), b_size)]
 
 
 def merge_batches(batches, step_size=10):
@@ -185,7 +179,7 @@ def predict(feature, model, batch_size=4, step_size=64):
         batch_pred.append(expit(pred))
 
     # Merge batch predictions into complete output
-    pred = merge_batches(batch_pred, step_size=step_size)
+    pred = merge_batches(batch_pred, step_size=max(1, min(timesteps, step_size)))[:len(feature)]
 
     # Remove paddings
     if diff > 0:

@@ -62,7 +62,8 @@ class MusicTranscription(BaseTranscription):
         }
         self.custom_objects = {"MultiHeadAttention": MultiHeadAttention}
 
-    def transcribe(self, input_audio, model_path=None, output="./"):
+    def transcribe(self, input_audio, model_path=None, output="./", onset_th=None, duration_th=None,
+                   instrument_th=None):
         """Transcribe notes and instruments of the given audio.
 
         This function transcribes notes (onset, duration) of each instruments in the audio.
@@ -116,10 +117,10 @@ class MusicTranscription(BaseTranscription):
         midi = multi_inst_note_inference(
             pred,
             mode=model_settings.training.label_type,
-            onset_th=model_settings.inference.onset_th,
-            dura_th=model_settings.inference.dura_th,
+            onset_th=model_settings.inference.onset_th if onset_th is None else onset_th,
+            dura_th=model_settings.inference.dura_th if duration_th is None else duration_th,
             frm_th=model_settings.inference.frame_th,
-            inst_th=model_settings.inference.inst_th,
+            inst_th=model_settings.inference.inst_th if instrument_th is None else instrument_th,
             t_unit=model_settings.feature.hop_size,
             channel_program_mapping=self.mode_inst_mapping[model_settings.transcription_mode],
         )

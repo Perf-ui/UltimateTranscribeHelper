@@ -10,7 +10,7 @@ for name in ['MutableSequence', 'Iterable', 'Mapping', 'Sequence', 'Callable', '
 # Patch numpy for backward compatibility with old libraries under NumPy 2.0+
 import numpy as np
 for name, target in [('float', float), ('int', int), ('bool', bool), ('complex', complex)]:
-    if not hasattr(np, name):
+    if name not in np.__dict__:
         setattr(np, name, target)
 
 MODULE_PATH = os.path.abspath(f"{__file__}/..")

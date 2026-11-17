@@ -116,7 +116,7 @@ class VocalTranscription(BaseTranscription):
         except ImportError:
             pass
 
-    def transcribe(self, input_audio, model_path=None, output="./"):
+    def transcribe(self, input_audio, model_path=None, output="./", vocal_audio=None):
         """Transcribe vocal notes in the audio.
 
         This function transcribes onset, offset, and pitch of the vocal in the audio.
@@ -151,7 +151,12 @@ class VocalTranscription(BaseTranscription):
         omnizart.vocal_contour.transcribe: Pitch estimation function.
         """
         logger.info("Load and separate vocal track from the audio...")
-        wav, fs = _vocal_separation_sherpa(input_audio)
+        if vocal_audio is None:
+            wav, fs = _vocal_separation_sherpa(input_audio)
+        else:
+            import soundfile as sf
+            wav, fs = sf.read(str(vocal_audio), dtype="float32", always_2d=True)
+            wav = wav.mean(axis=1)
 
         logger.info("Loading model...")
         model, model_settings = self._load_model(model_path)
@@ -181,8 +186,13 @@ class VocalTranscription(BaseTranscription):
             t_unit=model_settings.feature.hop_size
         )
 
+        if interval is None or len(interval) == 0:
+            raise ValueError("No vocal note onsets were detected in the separated vocal stem.")
+
         logger.info("Extracting pitch contour")
-        agg_f0 = vcapp.app.transcribe(input_audio, model_path=model_settings.inference.pitch_model, output=output)
+        agg_f0 = vcapp.app.transcribe(vocal_audio or input_audio, model_path=model_settings.inference.pitch_model, output=output)
+        if len(agg_f0) == 0:
+            raise ValueError("No vocal pitches were detected in the separated vocal stem.")
 
         logger.info("Inferencing MIDI...")
         midi = infer_midi(interval, agg_f0, t_unit=model_settings.feature.hop_size)

@@ -150,7 +150,7 @@ MUSICNET_INSTRUMENT_PROGRAMS = [0, 6, 40, 41, 42, 43, 60, 68, 70, 71, 73]
 
 #: Program numbers that represent different groups of channels used in Pop dataset.
 #: Guitar, bass, strings, organ, piano, and others
-POP_INSTRUMENT_PROGRAMES = [24, 32, 40, 0, 56]
+POP_INSTRUMENT_PROGRAMES = [24, 32, 40, 16, 0, 56]
 
 #: Path to the soundfont.
 SOUNDFONT_PATH = os.path.join(MODULE_PATH, "resource/soundfonts.sf2")

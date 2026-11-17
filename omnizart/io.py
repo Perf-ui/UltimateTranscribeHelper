@@ -1,6 +1,7 @@
 import os
 import csv
 import pickle
+import importlib.util
 
 import yaml
 import librosa
@@ -72,6 +73,10 @@ def load_audio(audio_path, sampling_rate=44100, mono=True):
     fs: int
         Sampling rate of the audio. Will be the same as the given ``sampling_rate``.
     """
+    if importlib.util.find_spec("spleeter") is None:
+        audio, fs = load_audio_with_librosa(audio_path, sampling_rate=sampling_rate, mono=mono)
+        return (audio if mono else audio.T), fs
+
     try:
         audio_loader = adapter.AudioAdapter.default()
         audio, fs = audio_loader.load(audio_path, sample_rate=sampling_rate)

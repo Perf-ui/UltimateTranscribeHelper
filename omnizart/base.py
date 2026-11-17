@@ -79,7 +79,8 @@ class BaseTranscription(metaclass=ABCMeta):
         elif not os.path.exists(model_path):
             raise FileNotFoundError(f"The given path doesn't exist: {model_path}.")
         elif not os.path.basename(model_path).startswith(self.settings.model.save_prefix.lower()) \
-                and not {"arch.yaml", "weights.h5", "configurations.yaml"}.issubset(os.listdir(model_path)):
+                and not {"arch.yaml", "weights.h5", "configurations.yaml"}.issubset(os.listdir(model_path)) \
+                and not {"saved_model.pb", "configurations.yaml"}.issubset(os.listdir(model_path)):
 
             # Search checkpoint folders under the given path
             dirs = [c_dir for c_dir in os.listdir(model_path) if os.path.isdir(c_dir)]
