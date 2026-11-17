@@ -3,6 +3,7 @@ import click
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import shutil
+import subprocess
 
 from omnizart.cli import silence_tensorflow
 from omnizart.cli.common_options import add_common_options, COMMON_TRANSCRIBE_OPTIONS
@@ -25,13 +26,14 @@ music = LazyLoader("music", globals(), "omnizart.music")
 @click.option("--separator", type=click.Choice(["spleeter", "uvr", "vocal-ft", "inst-hq4", "inst-hq5"]), default="spleeter", help="Vocal separation model.")
 @click.option("--uvr-device", type=click.Choice(["cpu", "directml"]), default="cpu", help="Device for UVR separation only.")
 @click.option("--gpu-index", type=click.IntRange(min=0), default=0, help="DirectML adapter index.")
+@click.option("--musescore", type=click.Path(exists=True, dir_okay=False), default=None, help="MuseScore executable for optional MusicXML export.")
 @click.option("--lint-notes", is_flag=True, help="Save a non-destructive transcription review report.")
 @click.option("--smooth-notes", is_flag=True, help="Also save a conservatively smoothed MIDI copy.")
 @click.option("--smooth-gap-ms", type=click.FloatRange(0, 200), default=30, help="Maximum gap to join, in milliseconds.")
 @click.option("--remove-short-ms", type=click.FloatRange(0, 200), default=0, help="Also remove notes shorter than this duration; 0 disables.")
 def transcribe(input_audio, model_path, output, onset_th, duration_th, instrument_th, frame_th, minimum_note_ms,
                remove_vocals, save_accompaniment, include_vocals, separator, uvr_device, gpu_index,
-               lint_notes, smooth_notes, smooth_gap_ms, remove_short_ms):
+               musescore, lint_notes, smooth_notes, smooth_gap_ms, remove_short_ms):
     """Transcribe a single audio and output as a MIDI file.
 
     This will output a MIDI file with the same name as the given audio, except the
@@ -101,7 +103,7 @@ def transcribe(input_audio, model_path, output, onset_th, duration_th, instrumen
                 _transcribe(instrument_input, model_path, output, onset_th, duration_th, instrument_th, frame_th, minimum_note_ms)
     else:
         _transcribe(input_audio, model_path, output, onset_th, duration_th, instrument_th, frame_th, minimum_note_ms)
-    if smooth_notes or remove_short_ms or lint_notes:
+    if smooth_notes or remove_short_ms or lint_notes or musescore:
         target = Path(output)
         if target.is_dir():
             target = target / (Path(input_audio).stem + ".mid")
@@ -110,6 +112,14 @@ def transcribe(input_audio, model_path, output, onset_th, duration_th, instrumen
                 target = Path(str(target) + ".mid")
         elif target.suffix.lower() not in (".mid", ".midi"):
             target = Path(str(target) + ".mid")
+    if musescore:
+        from omnizart.desktop.score_export import export_musicxml
+        score = target.with_name(target.stem + ".musicxml")
+        try:
+            export_musicxml(target, score, musescore)
+        except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as exc:
+            raise click.ClickException(f"Original MIDI was saved, but MusicXML export failed: {exc}") from exc
+        click.echo(f"MusicXML draft saved to {score}. Review the notation in MuseScore.")
     if lint_notes:
         from omnizart.desktop.lint import write_report
         report = target.with_name(target.stem + "_review.txt")

@@ -31,7 +31,7 @@ ACCENT = "#a49aff"
 FIELD = "#252d40"
 CUSTOM_MODEL = "Imported Omnizart model"
 RESULT_SUFFIXES = (".mid", ".midi", ".csv", "_beat.csv", "_down_beat.csv", "_f0.csv",
-                   "_trans.wav", "_accompaniment.wav", "_smoothed.mid", "_review.txt", "_drums.wav",
+                   "_trans.wav", "_accompaniment.wav", "_smoothed.mid", "_review.txt", ".musicxml", "_drums.wav",
                    "_bass.wav", "_other.wav", "_vocals.wav", "_guitar.wav", "_piano.wav")
 
 SETTING_HELP = {
@@ -148,19 +148,21 @@ def read_folders():
         data = json.loads(folder_settings_path().read_text(encoding="utf-8"))
         if not isinstance(data, dict):
             return {}
-        return {key: value for key in ("input", "output")
+        return {key: value for key in ("input", "output", "musescore")
                 if isinstance((value := data.get(key)), str)}
     except (OSError, ValueError):
         return {}
 
 
-def remember_folders(input_folder=None, output_folder=None):
+def remember_folders(input_folder=None, output_folder=None, musescore=None):
     settings = folder_settings_path()
     folders = read_folders()
     if input_folder is not None:
         folders["input"] = str(input_folder)
     if output_folder is not None:
         folders["output"] = str(output_folder)
+    if musescore is not None:
+        folders["musescore"] = str(musescore)
     settings.parent.mkdir(parents=True, exist_ok=True)
     temporary = settings.with_suffix(".tmp")
     try:
@@ -256,6 +258,8 @@ class Application(ttk.Frame):
         self.separator_model = tk.StringVar(value="UVR MDX (recommended)")
         self.use_gpu = tk.BooleanVar(value=False)
         self.gpu_index = tk.StringVar(value="0")
+        self.musescore_export = tk.BooleanVar(value=False)
+        self.musescore_path = tk.StringVar()
         self.lint_notes = tk.BooleanVar(value=False)
         self.smooth_notes = tk.BooleanVar(value=False)
         self.smooth_gap = tk.StringVar(value="30")
@@ -263,6 +267,7 @@ class Application(ttk.Frame):
         self.minimum_short_note = tk.StringVar(value="40")
         self.keep_accompaniment = tk.BooleanVar(value=False)
         folders = read_folders()
+        self.musescore_path.set(folders.get("musescore", ""))
         self.input_folder = folders.get("input", "")
         self.source = tk.StringVar()
         saved_output = folders.get("output", "")
@@ -400,6 +405,13 @@ class Application(ttk.Frame):
         self.lint_option.grid(row=16, column=0, sticky="w", pady=(10, 0))
         Tooltip(self.lint_option, "Writes a separate text report of possible short or overlapping notes. Suggestions can be intentional; MIDI is unchanged.")
 
+        self.score_option = ttk.Checkbutton(card, text="Export MusicXML using MuseScore", variable=self.musescore_export, style="App.TCheckbutton")
+        self.score_option.grid(row=17, column=0, sticky="w", pady=(10, 0))
+        self.score_button = ttk.Button(card, text="Choose MuseScore...", style="Link.TButton", command=self.choose_musescore)
+        self.score_button.grid(row=17, column=1, sticky="w", padx=(14, 0), pady=(10, 0))
+        Tooltip(self.score_option, "Creates a draft score using your MuseScore installation. Review timing, notation, pedal and dynamics; the original MIDI is kept.")
+        Tooltip(self.score_button, "Select MuseScore4.exe from your MuseScore installation.")
+
         self.settings_card = ttk.Frame(body, style="Card.TFrame", padding=(22, 12))
         self.settings_card.grid(row=2, column=0, sticky="ew", pady=(12, 0))
         self.settings_card.columnconfigure(0, weight=1)
@@ -517,6 +529,8 @@ class Application(ttk.Frame):
             self.vocal_option.configure(state="normal")
             self.separator_picker.configure(state="readonly")
             self.separation_models_button.configure(state="normal")
+            self.score_option.configure(state="normal")
+            self.score_button.configure(state="normal")
             self.lint_option.configure(state="normal")
             self.smooth_option.configure(state="normal")
             self.short_option.configure(state="normal")
@@ -580,6 +594,8 @@ class Application(ttk.Frame):
             self.keep_option.configure(state="disabled")
             self.gpu_option.configure(state="disabled")
             self.gpu_entry.configure(state="disabled")
+            self.score_option.configure(state="disabled")
+            self.score_button.configure(state="disabled")
             self.lint_option.configure(state="disabled")
             self.smooth_option.configure(state="disabled")
             self.smooth_entry.configure(state="disabled")
@@ -840,6 +856,16 @@ class Application(ttk.Frame):
         download.configure(command=prepare)
         import_button.configure(command=import_file)
 
+    def choose_musescore(self):
+        path = filedialog.askopenfilename(parent=self.master, title="Choose MuseScore4.exe", filetypes=[("Executable", "*.exe"), ("All files", "*.*")])
+        if path:
+            self.musescore_path.set(path)
+            self.musescore_export.set(True)
+            try:
+                remember_folders(musescore=path)
+            except OSError:
+                pass
+
     def show_separation_models(self):
         dialog = tk.Toplevel(self.master)
         dialog.title("Separation models")
@@ -1030,6 +1056,9 @@ class Application(ttk.Frame):
         except ValueError as exc:
             messagebox.showerror("Advanced settings", str(exc))
             return
+        if mode == "music" and self.musescore_export.get() and not Path(self.musescore_path.get()).is_file():
+            messagebox.showerror("MuseScore export", "Choose your MuseScore executable first.")
+            return
         target = destination / (source.stem + "_omnizart")
         try:
             target.mkdir(exist_ok=True)
@@ -1042,6 +1071,8 @@ class Application(ttk.Frame):
         if mode == "music":
             model = imported_path if imported_path is not None else self.music_model.get()
             cmd.extend(["--model-path", model, *options])
+            if self.musescore_export.get():
+                cmd.extend(["--musescore", self.musescore_path.get()])
             if self.lint_notes.get():
                 cmd.append("--lint-notes")
             if self.smooth_notes.get():

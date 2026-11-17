@@ -42,6 +42,13 @@ more than one GPU, try index 1 for the other adapter. Transkun, vocal transcript
 and the other transcription models still use CPU. A compatible DirectX 12
 driver is required; select CPU if GPU initialization fails.
 
+Optional "Export MusicXML using MuseScore" uses a separately installed
+MuseScore executable to create a draft .musicxml next to the MIDI. Select
+MuseScore4.exe with "Choose MuseScore...". The MIDI remains unchanged.
+MuseScore converts the MIDI using its own import settings; review notes,
+rhythm, pedal and dynamics. Pedal and dynamics are not guaranteed to survive
+conversion, and this option does not infer markings missing from the MIDI.
+
 Optional "Create note review report" writes a separate `_review.txt` with
 timestamps for very short notes and overlapping same-pitch notes. The report
 contains suggestions, not confirmed errors. It does not change the MIDI and is

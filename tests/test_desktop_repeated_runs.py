@@ -15,6 +15,8 @@ class RepeatedRunsTests(unittest.TestCase):
             folder = Path(directory)
             audio = folder / "song.wav"
             audio.touch()
+            musescore = folder / "MuseScore4.exe"
+            musescore.touch()
             models = [folder / "one" / "piano", folder / "two" / "piano"]
             for model in models:
                 (model / "variables").mkdir(parents=True)
@@ -37,6 +39,8 @@ class RepeatedRunsTests(unittest.TestCase):
                     app.destination.set(str(folder))
                     self.assertFalse(app.lint_notes.get())
                     app.lint_notes.set(True)
+                    app.musescore_path.set(str(musescore))
+                    app.musescore_export.set(True)
                     first_label = next(label for label, path in app.custom_models.items() if path == str(models[0]))
                     app.music_model.set(first_label)
                     app.mode_changed()
@@ -44,6 +48,7 @@ class RepeatedRunsTests(unittest.TestCase):
                     command, _ = thread.call_args.kwargs["args"]
                     self.assertEqual(command[command.index("--model-path") + 1], str(models[0]))
                     self.assertIn("--lint-notes", command)
+                    self.assertEqual(command[command.index("--musescore") + 1], str(musescore))
                     app.output_lock.unlink()
                 finally:
                     root.destroy()
