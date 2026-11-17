@@ -1,4 +1,4 @@
-﻿"""Review reports identify likely issues without changing the source."""
+"""Review reports identify likely issues without changing the source."""
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -31,6 +31,21 @@ class ReviewTests(unittest.TestCase):
             self.assertEqual(source.read_bytes(), original)
             with self.assertRaises(FileExistsError):
                 write_report(source, report)
+
+    def test_vocal_leap_and_unclosed_note_are_flagged(self):
+        with TemporaryDirectory() as folder:
+            source, report = Path(folder) / 'voice.mid', Path(folder) / 'voice.txt'
+            midi = mido.MidiFile(ticks_per_beat=480)
+            midi.tracks.append(mido.MidiTrack([
+                mido.MetaMessage('track_name', name='Vocals'),
+                mido.Message('note_on', note=60, velocity=90),
+                mido.Message('note_off', note=60, time=120),
+                mido.Message('note_on', note=78, velocity=90, time=120)]))
+            midi.save(source)
+            self.assertEqual(write_report(source, report), 2)
+            text = report.read_text(encoding='utf-8')
+            self.assertIn('Vocal leap', text)
+            self.assertIn('no matching note-off', text)
 
     def test_cli_report_is_optional_and_created_from_output(self):
         with TemporaryDirectory() as folder:
