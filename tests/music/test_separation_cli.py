@@ -15,9 +15,9 @@ class SeparationCliTests(unittest.TestCase):
             audio.touch()
             with patch("omnizart.desktop.sherpa_uvr.separate") as separator, \
                     patch("omnizart.cli.music.transcribe._transcribe"):
-                result = CliRunner().invoke(transcribe, [str(audio), "--remove-vocals", "--separator", "vocal-ft"])
+                result = CliRunner().invoke(transcribe, [str(audio), "--remove-vocals", "--separator", "inst-hq4"])
             self.assertEqual(result.exit_code, 0, result.output)
-            self.assertEqual(separator.call_args.args[0], "vocal-ft")
+            self.assertEqual(separator.call_args.args[0], "inst-hq4")
 
     def test_accompaniment_uses_the_explicit_run_name(self):
         with TemporaryDirectory() as directory:

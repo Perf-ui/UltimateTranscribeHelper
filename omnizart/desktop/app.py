@@ -348,7 +348,7 @@ class Application(ttk.Frame):
         ttk.Label(card, text="Separation model", style="CardLabel.TLabel").grid(row=11, column=0, sticky="w", pady=(10, 2))
         self.separator_picker = ttk.Combobox(card, textvariable=self.separator_model,
                                              values=["UVR MDX (recommended)", "UVR Vocal FT (CPU)",
-                                                     "UVR Instrumental HQ5 (CPU)", "Spleeter (legacy)"],
+                                                     "UVR Instrumental HQ4 (CPU)", "UVR Instrumental HQ5 (CPU)", "Spleeter (legacy)"],
                                              state="readonly", style="App.TCombobox")
         self.separator_picker.grid(row=12, column=0, sticky="ew")
         Tooltip(self.separator_picker, "All models run locally. The bundled UVR MDX model can optionally use a GPU. "
@@ -846,7 +846,7 @@ class Application(ttk.Frame):
                   "metadata-enabled model (about 60–65 MiB); the file is verified before use. "
                   "Different models can produce different results on the same recording.",
                   style="Subtitle.TLabel", wraplength=570, justify="left").pack(anchor="w", pady=(12, 12))
-        labels = {"UVR Vocal FT (CPU)": "vocal-ft", "UVR Instrumental HQ5 (CPU)": "inst-hq5"}
+        labels = {"UVR Vocal FT (CPU)": "vocal-ft", "UVR Instrumental HQ4 (CPU)": "inst-hq4", "UVR Instrumental HQ5 (CPU)": "inst-hq5"}
         current = self.separator_model.get()
         selected = tk.StringVar(value=current if current in labels else next(iter(labels)))
         ttk.Combobox(frame, textvariable=selected, values=list(labels), state="readonly",
@@ -989,7 +989,7 @@ class Application(ttk.Frame):
             if not available:
                 messagebox.showerror("Six-stem model", "Open Models & import to download or import the six-stem model.")
                 return
-        optional_separators = {"UVR Vocal FT (CPU)": "vocal-ft", "UVR Instrumental HQ5 (CPU)": "inst-hq5"}
+        optional_separators = {"UVR Vocal FT (CPU)": "vocal-ft", "UVR Instrumental HQ4 (CPU)": "inst-hq4", "UVR Instrumental HQ5 (CPU)": "inst-hq5"}
         if mode == "music" and (self.remove_vocals.get() or self.include_vocals.get()) and self.separator_model.get() in optional_separators:
             from omnizart.desktop.sherpa_uvr import model_path
             if not model_path(optional_separators[self.separator_model.get()]).is_file():
@@ -1043,7 +1043,7 @@ class Application(ttk.Frame):
                 cmd.append("--include-vocals")
             if self.include_vocals.get() or self.remove_vocals.get():
                 separator = {"UVR MDX (recommended)": "uvr", "UVR Vocal FT (CPU)": "vocal-ft",
-                             "UVR Instrumental HQ5 (CPU)": "inst-hq5", "Spleeter (legacy)": "spleeter"}[self.separator_model.get()]
+                             "UVR Instrumental HQ4 (CPU)": "inst-hq4", "UVR Instrumental HQ5 (CPU)": "inst-hq5", "Spleeter (legacy)": "spleeter"}[self.separator_model.get()]
                 cmd.extend(["--separator", separator])
                 if gpu_enabled:
                     cmd.extend(["--uvr-device", "directml", "--gpu-index", gpu_index])

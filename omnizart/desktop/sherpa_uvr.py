@@ -7,6 +7,7 @@ import urllib.request
 
 MODELS = {
     "vocal-ft": ("UVR-MDX-NET-Voc_FT.onnx", "e411182ce2c53541fefdcc99a8f46f2fe03978eb22038b9497c1d9d95a00fad4"),
+    "inst-hq4": ("UVR-MDX-NET-Inst_HQ_4.onnx", "af6de857b80f3ea7c4fd7b0380e7138f5ecf91da3e5f140c463b5aa6d927636f"),
     "inst-hq5": ("UVR-MDX-NET-Inst_HQ_5.onnx", "487e35ae87ed9af9914c85c357e60800c07b8196949e274fe884c18a0c620dbb"),
 }
 MAX_SIZE = 100_000_000

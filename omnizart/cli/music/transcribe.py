@@ -22,7 +22,7 @@ music = LazyLoader("music", globals(), "omnizart.music")
 @click.option("--remove-vocals", is_flag=True, help="Separate vocals before instrument transcription.")
 @click.option("--save-accompaniment", is_flag=True, help="Keep the separated accompaniment WAV.")
 @click.option("--include-vocals", is_flag=True, help="Add a separate vocal melody track to the MIDI.")
-@click.option("--separator", type=click.Choice(["spleeter", "uvr", "vocal-ft", "inst-hq5"]), default="spleeter", help="Vocal separation model.")
+@click.option("--separator", type=click.Choice(["spleeter", "uvr", "vocal-ft", "inst-hq4", "inst-hq5"]), default="spleeter", help="Vocal separation model.")
 @click.option("--uvr-device", type=click.Choice(["cpu", "directml"]), default="cpu", help="Device for UVR separation only.")
 @click.option("--gpu-index", type=click.IntRange(min=0), default=0, help="DirectML adapter index.")
 @click.option("--smooth-notes", is_flag=True, help="Also save a conservatively smoothed MIDI copy.")
@@ -71,7 +71,7 @@ def transcribe(input_audio, model_path, output, onset_th, duration_th, instrumen
                 else:
                     separate_uvr(input_audio, separated, vocal_stem if include_vocals else None,
                                  device=uvr_device, gpu_index=gpu_index)
-            elif separator in ("vocal-ft", "inst-hq5"):
+            elif separator in ("vocal-ft", "inst-hq4", "inst-hq5"):
                 from omnizart.desktop.sherpa_uvr import separate as separate_sherpa_uvr
                 separate_sherpa_uvr(separator, input_audio, separated, vocal_stem if include_vocals else None)
             elif include_vocals:

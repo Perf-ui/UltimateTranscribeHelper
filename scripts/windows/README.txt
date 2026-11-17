@@ -26,7 +26,7 @@ links to their projects and lets you select a complete compatible Omnizart
 music checkpoint folder. Multiple imported checkpoints remain available in
 the model dropdown. Other model formats are not interchangeable.
 "Manage separation models" offers optional CPU UVR Vocal FT and Instrumental
-HQ5 checkpoints for download or import. These require the sherpa-onnx versions
+HQ4/HQ5 checkpoints for download or import. These require the sherpa-onnx versions
 with metadata, and the app verifies each file before use.
 
 Pedal Piano is an optional CPU model that predicts piano notes and sustain-pedal
