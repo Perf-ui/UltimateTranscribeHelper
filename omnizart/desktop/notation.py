@@ -213,6 +213,12 @@ def _piano_voices(staff_notes):
     for start, end, preferred, pitches in groups:
         assigned = False
         for staff in (preferred, 3 - preferred):
+            if staff != preferred:
+                sounding = [pitch for lane in lanes[staff] for a, b, chord in lane
+                            if a < end and b > start for pitch, _ in chord]
+                combined = sounding + [pitch for pitch, _ in pitches]
+                if combined and max(combined) - min(combined) > 12:
+                    continue
             available = [i for i, last in enumerate(ends[staff]) if last <= start]
             if available:
                 index = max(available, key=lambda i: ends[staff][i])

@@ -77,6 +77,14 @@ class NativeScoreTests(unittest.TestCase):
         self.assertEqual(len(voices[1]), 1)
         self.assertEqual(sum(len(lane) for staff in voices.values() for lane in staff), 5)
 
+    def test_voice_overflow_does_not_force_a_wide_span_on_the_other_hand(self):
+        notes = {1: [(0, 8, 90, 80)],
+                 2: [(0, length, 40 + length, 80) for length in range(1, 6)]}
+        with self.assertWarnsRegex(UserWarning, 'Dense overlapping'):
+            voices = _piano_voices(notes)
+        upper = [pitch[0] for lane in voices[1] for _, _, chord in lane for pitch in chord]
+        self.assertEqual(upper, [90])
+
     def test_hand_assignment_splits_a_wide_chord_between_hands(self):
         entries = [(0, 4, pitch, 80) for pitch in (48, 60, 72, 84)]
         hands = _assign_piano_hands(entries)
