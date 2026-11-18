@@ -32,7 +32,7 @@ ACCENT = "#a49aff"
 FIELD = "#252d40"
 CUSTOM_MODEL = "Imported Omnizart model"
 RESULT_SUFFIXES = (".mid", ".midi", ".csv", "_beat.csv", "_down_beat.csv", "_f0.csv",
-                   "_trans.wav", "_accompaniment.wav", "_smoothed.mid", "_review.txt", "_comparison.txt", ".musicxml", "_simplified.musicxml", "_drums.wav",
+                   "_trans.wav", "_accompaniment.wav", "_smoothed.mid", "_yourmt3_multitrack.mid", "_review.txt", "_comparison.txt", ".musicxml", "_simplified.musicxml", "_drums.wav",
                    "_bass.wav", "_other.wav", "_vocals.wav", "_guitar.wav", "_piano.wav", ".pdf")
 
 SETTING_HELP = {

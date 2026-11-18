@@ -84,8 +84,30 @@ def transcribe(input_audio, model_path, output, onset_th, duration_th, instrumen
         with TemporaryDirectory(prefix="omnizart-piano-") as temporary:
             base = Path(temporary) / "separated"
             separate_stems(input_audio, base, device=uvr_device, gpu_index=gpu_index)
-            _transcribe(str(base.with_name(base.name + "_piano.wav")), model_path, output,
-                        onset_th, duration_th, instrument_th, frame_th, minimum_note_ms)
+            piano_audio = str(base.with_name(base.name + "_piano.wav"))
+            if model_path == "YourMT3":
+                from omnizart.desktop.piano_midi import write_single_piano
+                raw = Path(temporary) / 'yourmt3.mid'
+                _transcribe(piano_audio, model_path, str(raw), onset_th, duration_th,
+                            instrument_th, frame_th, minimum_note_ms)
+                target = Path(output)
+                if target.is_dir():
+                    target = target / (Path(input_audio).stem + '.mid')
+                elif target.suffix.lower() not in ('.mid', '.midi'):
+                    target = Path(str(target) + '.mid')
+                original = target.with_name(target.stem + '_yourmt3_multitrack.mid')
+                if target.exists() or original.exists():
+                    raise click.ClickException('Refusing to overwrite an existing piano or multitrack MIDI.')
+                with raw.open('rb') as original_file, original.open('xb') as preserved:
+                    shutil.copyfileobj(original_file, preserved)
+                try:
+                    write_single_piano(original, target)
+                except (OSError, ValueError) as exc:
+                    raise click.ClickException(f'Original YourMT3 MIDI saved to {original}, but piano output failed: {exc}') from exc
+                click.echo(f'Original YourMT3 multitrack MIDI saved to {original}.')
+            else:
+                _transcribe(piano_audio, model_path, output,
+                            onset_th, duration_th, instrument_th, frame_th, minimum_note_ms)
     elif remove_vocals or include_vocals:
         from omnizart.desktop.separation import remove_vocals as separate, separate_stems
         with TemporaryDirectory(prefix="omnizart-separation-") as temporary:

@@ -14,6 +14,12 @@ Python environment. Its checkpoint download currently requires Git and Git LFS
 on PATH. The weights are published under Apache-2.0 terms; review the upstream
 project's per-component notices before redistributing a build.
 
+When **Isolate piano before transcribing** is combined with YourMT3, the app
+transcribes the separated piano stem and combines YourMT3's predicted notes
+into one piano track. The original multi-instrument prediction is retained as
+`_yourmt3_multitrack.mid`. Relabelling does not remove non-piano sounds or
+guarantee that the notes are correct; the separator and model can make errors.
+
 ## MuScriptor
 
 In **Models & import**, open the official [MuScriptor small model page](https://huggingface.co/MuScriptor/muscriptor-small),
