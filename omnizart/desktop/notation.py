@@ -230,7 +230,7 @@ def _dense_piano_voices(staff_notes):
 
 
 def _piano_voices(staff_notes):
-    """Keep at most four voices per staff, moving overflow across the grand staff."""
+    """Keep hand assignments while limiting each staff to four voices."""
     groups = []
     for staff, entries in staff_notes.items():
         chords = defaultdict(list)
@@ -241,29 +241,17 @@ def _piano_voices(staff_notes):
     lanes = {1: [], 2: []}
     ends = {1: [], 2: []}
     for start, end, preferred, pitches in groups:
-        assigned = False
-        for staff in (preferred, 3 - preferred):
-            if staff != preferred:
-                sounding = [pitch for lane in lanes[staff] for a, b, chord in lane
-                            if a < end and b > start for pitch, _ in chord]
-                combined = sounding + [pitch for pitch, _ in pitches]
-                if combined and max(combined) - min(combined) > 12:
-                    continue
-            available = [i for i, last in enumerate(ends[staff]) if last <= start]
-            if available:
-                index = max(available, key=lambda i: ends[staff][i])
-            elif len(lanes[staff]) < 4:
-                index = len(lanes[staff])
-                lanes[staff].append([])
-                ends[staff].append(0)
-            else:
-                continue
-            lanes[staff][index].append((start, end, pitches))
-            ends[staff][index] = end
-            assigned = True
-            break
-        if not assigned:
+        available = [i for i, last in enumerate(ends[preferred]) if last <= start]
+        if available:
+            index = max(available, key=lambda i: ends[preferred][i])
+        elif len(lanes[preferred]) < 4:
+            index = len(lanes[preferred])
+            lanes[preferred].append([])
+            ends[preferred].append(0)
+        else:
             return _dense_piano_voices(staff_notes)
+        lanes[preferred][index].append((start, end, pitches))
+        ends[preferred][index] = end
     return lanes
 
 def _duration_pieces(start, end, measure_length):

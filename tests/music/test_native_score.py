@@ -91,12 +91,28 @@ class NativeScoreTests(unittest.TestCase):
                            for index in range(40)]}
         self.assertEqual(_estimate_tempo(notes, 120), 154)
 
-    def test_overflow_moves_to_other_staff_for_editor_compatibility(self):
+    def test_overflow_preserves_staff_and_slices_dense_voices(self):
         notes = {1: [], 2: [(0, length, 40 + length, 80) for length in range(1, 6)]}
-        voices = _piano_voices(notes)
-        self.assertEqual(len(voices[2]), 4)
-        self.assertEqual(len(voices[1]), 1)
-        self.assertEqual(sum(len(lane) for staff in voices.values() for lane in staff), 5)
+        with self.assertWarnsRegex(UserWarning, 'Dense overlapping'):
+            voices = _piano_voices(notes)
+        self.assertFalse(voices[1])
+        self.assertEqual(len(voices[2]), 1)
+        # Count note attacks, excluding continuations represented by ties.
+        attacks = [pitch[0] for lane in voices[2] for _, _, chord in lane
+                   for pitch in chord if not pitch[2]]
+        self.assertEqual(sorted(attacks), [41, 42, 43, 44, 45])
+
+    def test_overflow_does_not_add_a_sixth_note_to_the_other_hand(self):
+        notes = {1: [(0, 8, pitch, 80) for pitch in range(60, 65)],
+                 2: [(0, length, 54 + length, 80) for length in range(1, 6)]}
+        with self.assertWarnsRegex(UserWarning, 'Dense overlapping'):
+            voices = _piano_voices(notes)
+        upper_attacks = [pitch[0] for lane in voices[1] for _, _, chord in lane
+                         for pitch in chord if len(pitch) == 2 or not pitch[2]]
+        self.assertEqual(sorted(upper_attacks), [60, 61, 62, 63, 64])
+        lower_attacks = [pitch[0] for lane in voices[2] for _, _, chord in lane
+                         for pitch in chord if len(pitch) == 2 or not pitch[2]]
+        self.assertEqual(sorted(lower_attacks), [55, 56, 57, 58, 59])
 
     def test_voice_overflow_does_not_force_a_wide_span_on_the_other_hand(self):
         notes = {1: [(0, 8, 90, 80)],
