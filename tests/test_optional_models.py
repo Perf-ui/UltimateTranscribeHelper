@@ -51,6 +51,18 @@ class OptionalModelsTest(unittest.TestCase):
             with patch.object(optional_models, 'SVSEP_SHA256', hashlib.sha256(b'invalid').hexdigest()):
                 self.assertTrue(optional_models.ready('Piano SVSep'))
 
+    def test_beat_model_ready_requires_verified_checkpoint(self):
+        import hashlib
+        with tempfile.TemporaryDirectory() as directory, patch.object(optional_models, 'environment', return_value=Path(directory)):
+            python = optional_models.python_path('Beat This')
+            python.parent.mkdir(parents=True)
+            python.touch()
+            (Path(directory) / '.ready').write_text('1', encoding='utf-8')
+            (Path(directory) / 'model.ckpt').write_bytes(b'bad')
+            self.assertFalse(optional_models.ready('Beat This'))
+            with patch.object(optional_models, 'BEAT_SHA256', hashlib.sha256(b'bad').hexdigest()):
+                self.assertTrue(optional_models.ready('Beat This'))
+
     def test_yourmt3_uses_isolated_interpreter(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(yourmt3, "ready", return_value=True), patch.object(yourmt3, "python_path", return_value=Path("isolated-python")), patch.object(yourmt3.subprocess, "run") as run:
             target = Path(directory) / "out.mid"

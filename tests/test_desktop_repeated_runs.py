@@ -41,6 +41,7 @@ class RepeatedRunsTests(unittest.TestCase):
                     app.lint_notes.set(True)
                     app.musescore_path.set(str(musescore))
                     app.musescore_export.set(True)
+                    app.align_bars.set(False)
                     app.pdf_export.set(True)
                     app.score_tempo.set("154")
                     reference = folder / "reference.mid"

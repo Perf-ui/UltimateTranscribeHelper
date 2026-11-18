@@ -49,7 +49,9 @@ Differences are not proof that either model is right. Drum notes are excluded.
 
 Optional "Create formatted MusicXML score" creates an editable score from
 MIDI without requiring MuseScore. Tempo is estimated automatically or can be
-entered manually. Choose MuseScore only if you also want a PDF. Score timing,
+entered manually. Audio bar alignment uses Beat This! to estimate beats and
+bar lines; its verified model downloads on first use. The first bar-line time
+can be entered manually. Choose MuseScore only if you also want a PDF. Score timing,
 voices and spelling are estimates; review the resulting notation. The original
 MIDI is not changed. Optional neural piano hand assignment installs the
 MIT-licensed Piano SVSep model and dependencies on first use. The optional

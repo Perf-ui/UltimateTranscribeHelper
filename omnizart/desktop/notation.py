@@ -6,6 +6,7 @@ attack in another voice. The original MIDI is never modified.
 """
 from collections import defaultdict, deque
 import math
+import subprocess
 import warnings
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -333,7 +334,7 @@ def _write_rests(measure, start, end, measure_length, voice, staff):
         if staff is not None:
             _element(note, 'staff', staff)
 
-def export_score(source, destination, tempo=None, piano=True, simplify=False, neural_staff=False):
+def export_score(source, destination, tempo=None, piano=True, simplify=False, neural_staff=False, audio=None, align_bars=False, downbeat=None, beats_per_bar=None):
     """Write a 16th-grid MusicXML draft, with independent voices and stable clefs."""
     destination = Path(destination)
     if destination.exists():
@@ -349,6 +350,43 @@ def export_score(source, destination, tempo=None, piano=True, simplify=False, ne
     if not 30 <= bpm <= 300:
         raise ValueError('Score tempo must be between 30 and 300 BPM.')
     numerator, denominator = signature
+    if beats_per_bar is not None:
+        if beats_per_bar not in (3, 4):
+            raise ValueError('Beats per bar must be 3 or 4.')
+        numerator, denominator = beats_per_bar, 4
+    grid = None
+    if align_bars:
+        if audio is None:
+            raise ValueError('Audio is required for automatic bar alignment.')
+        try:
+            from omnizart.desktop.beat_alignment import detect
+            from omnizart.desktop.beat_grid import BeatGrid
+            if denominator != 4 or numerator not in (3, 4):
+                raise ValueError('Automatic bar alignment currently supports 3/4 and 4/4 scores.')
+            beats, downbeats = detect(audio)
+            grid = BeatGrid(beats, downbeats, fallback_meter=numerator, tempo=tempo, downbeat=downbeat, meter=beats_per_bar)
+            if beats_per_bar is None and grid.meter_detected and grid.meter != numerator:
+                warnings.warn(f'Audio bar alignment inferred {grid.meter}/4 instead of the MIDI meter {numerator}/4. Review the score.', UserWarning)
+            numerator, denominator = grid.meter, 4
+            bpm = grid.bpm
+            if beats_per_bar is None and not grid.meter_detected:
+                warnings.warn(f'Audio bar alignment could not confidently infer the meter; using {numerator}/4. Review the score.', UserWarning)
+        except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as exc:
+            warnings.warn(f'Audio bar alignment unavailable ({exc}); score uses a constant-tempo grid instead.', UserWarning)
+            if downbeat is not None and denominator == 4 and numerator in (3, 4):
+                from omnizart.desktop.beat_grid import BeatGrid
+                period = 60 / bpm
+                grid = BeatGrid([i * period for i in range(4)], [], fallback_meter=numerator if denominator == 4 else 4,
+                                tempo=bpm, downbeat=downbeat)
+                numerator, denominator = grid.meter, 4
+    elif downbeat is not None:
+        if denominator != 4 or numerator not in (3, 4):
+            raise ValueError('Manual bar alignment currently supports 3/4 and 4/4 scores.')
+        from omnizart.desktop.beat_grid import BeatGrid
+        period = 60 / bpm
+        grid = BeatGrid([i * period for i in range(4)], [], fallback_meter=numerator if denominator == 4 else 4,
+                        tempo=bpm, downbeat=downbeat)
+        numerator, denominator = grid.meter, 4
     length = numerator * 16 / denominator
     if length != int(length) or not 1 <= length <= 64:
         raise ValueError('This time signature is not supported by the score grid.')
@@ -362,8 +400,8 @@ def export_score(source, destination, tempo=None, piano=True, simplify=False, ne
         is_piano = piano and len(notes) == 1
         quantized = []
         for start, end, pitch, velocity in entries:
-            onset = max(0, round(start * bpm / 60 * 4))
-            offset = max(onset + 1, round(end * bpm / 60 * 4))
+            onset = grid.unit(start) if grid else max(0, round(start * bpm / 60 * 4))
+            offset = max(onset + 1, grid.unit(end) if grid else round(end * bpm / 60 * 4))
             quantized.append((onset, offset, pitch, velocity))
         if simplify and not is_piano and len(_voices(quantized)) > 4:
             quantized, dropped = _simplify_to_voices(quantized)
@@ -413,6 +451,14 @@ def export_score(source, destination, tempo=None, piano=True, simplify=False, ne
                 _element(metro, 'beat-unit', 'quarter')
                 _element(metro, 'per-minute', f'{bpm:g}')
                 _element(direction, 'sound', tempo=f'{bpm:g}')
+            if grid:
+                for offset, current_bpm in grid.tempo_marks(length, measure_no):
+                    direction = _element(measure, 'direction')
+                    dtype = _element(direction, 'direction-type')
+                    _element(dtype, 'words', '\u200b', **{'print-object': 'no'})
+                    if offset:
+                        _element(direction, 'offset', offset, sound='yes')
+                    _element(direction, 'sound', tempo=f'{current_bpm:.6f}')
             streams = [(staff, idx, lane) for staff, ls in lanes.items() for idx, lane in enumerate(ls)
                        if any(start < right and end > left for start, end, _ in lane)]
             for staff in staff_notes:

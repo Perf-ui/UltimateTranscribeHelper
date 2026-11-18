@@ -264,6 +264,9 @@ class Application(ttk.Frame):
         self.compare_path = tk.StringVar()
         self.score_grid = tk.StringVar(value="Off")
         self.score_tempo = tk.StringVar(value="Auto")
+        self.align_bars = tk.BooleanVar(value=True)
+        self.score_downbeat = tk.StringVar(value="Auto")
+        self.score_meter = tk.StringVar(value="Auto")
         self.simplify_score = tk.BooleanVar(value=False)
         self.neural_staff = tk.BooleanVar(value=False)
         self.musescore_export = tk.BooleanVar(value=False)
@@ -448,6 +451,21 @@ class Application(ttk.Frame):
         self.neural_staff_option = ttk.Checkbutton(card, text="Experimental: neural piano hand assignment", variable=self.neural_staff, style="App.TCheckbutton")
         self.neural_staff_option.grid(row=21, column=0, columnspan=2, sticky="w", pady=(10, 0))
         Tooltip(self.neural_staff_option, "Uses Piano SVSep on CPU to suggest piano staves, balanced with hand reach. First use installs dependencies and downloads its model. Results still require review.")
+        self.align_bars_option = ttk.Checkbutton(card, text="Align bars to audio beats", variable=self.align_bars, style="App.TCheckbutton")
+        self.align_bars_option.grid(row=22, column=0, sticky="w", pady=(10, 0))
+        Tooltip(self.align_bars_option, "Detects beats and downbeats from the audio using Beat This. First use installs the model. Timing is an estimate and may need correction.")
+        self.downbeat_frame = ttk.Frame(card, style="Card.TFrame")
+        self.downbeat_frame.grid(row=22, column=1, sticky="w", padx=(14, 0), pady=(10, 0))
+        ttk.Label(self.downbeat_frame, text="First bar line (seconds)", style="CardLabel.TLabel").pack(side="left", padx=(0, 6))
+        self.downbeat_entry = ttk.Entry(self.downbeat_frame, textvariable=self.score_downbeat, width=7, style="App.TEntry")
+        self.downbeat_entry.pack(side="left")
+        Tooltip(self.downbeat_entry, "Auto uses the detected downbeat. Enter its time in seconds to correct the bar alignment.")
+        self.meter_frame = ttk.Frame(card, style="Card.TFrame")
+        self.meter_frame.grid(row=23, column=0, columnspan=2, sticky="w", pady=(10, 0))
+        ttk.Label(self.meter_frame, text="Beats per bar", style="CardLabel.TLabel").pack(side="left", padx=(0, 8))
+        self.meter_picker = ttk.Combobox(self.meter_frame, textvariable=self.score_meter, values=["Auto", "3", "4"], state="readonly", style="App.TCombobox", width=6)
+        self.meter_picker.pack(side="left")
+        Tooltip(self.meter_picker, "Override the detected meter when you know the recording has three or four beats per bar.")
 
         self.settings_card = ttk.Frame(body, style="Card.TFrame", padding=(22, 12))
         self.settings_card.grid(row=2, column=0, sticky="ew", pady=(12, 0))
@@ -573,6 +591,9 @@ class Application(ttk.Frame):
             self.score_option.configure(state="normal")
             self.score_simplify_option.configure(state="normal")
             self.neural_staff_option.configure(state="normal")
+            self.align_bars_option.configure(state="normal")
+            self.downbeat_entry.configure(state="normal")
+            self.meter_picker.configure(state="readonly")
             self.score_button.configure(state="normal")
             self.pdf_option.configure(state="normal")
             self.lint_option.configure(state="normal")
@@ -647,6 +668,9 @@ class Application(ttk.Frame):
             self.score_option.configure(state="disabled")
             self.score_simplify_option.configure(state="disabled")
             self.neural_staff_option.configure(state="disabled")
+            self.align_bars_option.configure(state="disabled")
+            self.downbeat_entry.configure(state="disabled")
+            self.meter_picker.configure(state="disabled")
             self.score_button.configure(state="disabled")
             self.pdf_option.configure(state="disabled")
             self.lint_option.configure(state="disabled")
@@ -1111,6 +1135,24 @@ class Application(ttk.Frame):
 
                 threading.Thread(target=install_score_model, daemon=True).start()
                 return
+        if mode == "music" and self.musescore_export.get() and self.align_bars.get():
+            from omnizart.desktop.optional_models import install, ready
+            if not ready("Beat This"):
+                if self.optional_installing:
+                    return
+                self.optional_installing = True
+                self.start_button.configure(state="disabled")
+                self.status.set("Installing Beat This and its model for bar alignment. This may take several minutes...")
+
+                def install_beat_model():
+                    try:
+                        install("Beat This")
+                        self.messages.put(("optional_install_done", ("Beat This", 0, "")))
+                    except Exception as exc:
+                        self.messages.put(("optional_install_done", ("Beat This", 1, str(exc))))
+
+                threading.Thread(target=install_beat_model, daemon=True).start()
+                return
         if mode == "music" and (selected_model == CUSTOM_MODEL or selected_model in self.custom_models) and (
                 not imported_path or not validate_model_folder(imported_path)):
             messagebox.showerror("Model", "Use Models & import to select a complete Omnizart music checkpoint.")
@@ -1196,6 +1238,15 @@ class Application(ttk.Frame):
             except ValueError:
                 messagebox.showerror("Score tempo", "Enter Auto or a tempo between 30 and 300 BPM.")
                 return
+        score_downbeat = self.score_downbeat.get().strip()
+        if mode == "music" and self.musescore_export.get() and score_downbeat.lower() != "auto":
+            try:
+                value = float(score_downbeat)
+                if not math.isfinite(value) or value < 0:
+                    raise ValueError()
+            except ValueError:
+                messagebox.showerror("Score bar line", "Enter Auto or a non-negative time in seconds.")
+                return
         if mode == "music" and self.musescore_export.get() and self.pdf_export.get() and not Path(self.musescore_path.get()).is_file():
             messagebox.showerror("MuseScore export", "The selected MuseScore executable no longer exists.")
             return
@@ -1219,6 +1270,12 @@ class Application(ttk.Frame):
                 cmd.extend(["--compare-midi", self.compare_path.get()])
             if self.musescore_export.get():
                 cmd.append("--score")
+                if self.align_bars.get():
+                    cmd.append("--align-bars")
+                if score_downbeat.lower() != "auto":
+                    cmd.extend(["--score-downbeat", score_downbeat])
+                if self.score_meter.get() != "Auto":
+                    cmd.extend(["--score-meter", self.score_meter.get()])
                 if self.neural_staff.get():
                     cmd.append("--neural-staff")
                 if self.simplify_score.get():
@@ -1281,7 +1338,7 @@ class Application(ttk.Frame):
                 kind, value = self.messages.get_nowait()
                 if kind == "log":
                     if "UserWarning:" in value and any(text in value for text in
-                            ("Piano hand spans", "Dense overlapping piano notes", "Percussion tracks are omitted", "Score simplification omitted")):
+                            ("Piano hand spans", "Dense overlapping piano notes", "Percussion tracks are omitted", "Score simplification omitted", "Audio bar alignment")):
                         self.score_warnings.append(value.split("UserWarning:", 1)[1].strip())
                     self.log.configure(state="normal")
                     self.log.insert("end", value)

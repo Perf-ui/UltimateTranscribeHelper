@@ -25,7 +25,7 @@ class ScoreButtonTests(unittest.TestCase):
                 piano_only=var(False), remove_vocals=var(False), include_vocals=var(False),
                 separator_model=var('UVR MDX (recommended)'), use_gpu=var(False), gpu_index=var('0'),
                 smooth_notes=var(False), remove_short_notes=var(False), compare_enabled=var(False),
-                musescore_export=var(True), neural_staff=var(False), simplify_score=var(True), score_tempo=var('154'), pdf_export=var(False),
+                musescore_export=var(True), align_bars=var(False), score_downbeat=var('Auto'), score_meter=var('Auto'), neural_staff=var(False), simplify_score=var(True), score_tempo=var('154'), pdf_export=var(False),
                 musescore_path=var(''), lint_notes=var(False), save_folders=Mock(),
                 log=Mock(), start_button=Mock(), open_button=Mock(), progress=Mock(), status=Mock(),
                 run=Mock())
@@ -41,6 +41,17 @@ class ScoreButtonTests(unittest.TestCase):
             with patch('omnizart.desktop.app.threading.Thread') as thread, patch('omnizart.desktop.optional_models.ready', return_value=True):
                 Application.start(app)
             self.assertIn('--neural-staff', thread.call_args.kwargs['args'][0])
+            app.output_lock.unlink()
+            app.neural_staff = var(False)
+            app.align_bars = var(True)
+            app.score_downbeat = var('1.25')
+            app.score_meter = var('3')
+            with patch('omnizart.desktop.app.threading.Thread') as thread, patch('omnizart.desktop.optional_models.ready', return_value=True):
+                Application.start(app)
+            cmd = thread.call_args.kwargs['args'][0]
+            self.assertIn('--align-bars', cmd)
+            self.assertEqual(cmd[cmd.index('--score-meter') + 1], '3')
+            self.assertEqual(cmd[cmd.index('--score-downbeat') + 1], '1.25')
             app.output_lock.unlink()
 
     def test_simplification_omissions_are_shown_after_success(self):

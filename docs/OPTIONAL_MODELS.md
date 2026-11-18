@@ -35,8 +35,18 @@ Select **Create formatted MusicXML score** to create an editable score directly
 from the MIDI. No MuseScore installation is required. Omnizart estimates the
 tempo from note attacks, quantizes a score-only copy to sixteenth notes, assigns
 overlapping notes to separate voices, and uses a grand staff for piano models.
-Enter a BPM instead of Auto when the estimate is wrong. The original MIDI is
-not changed. A separately installed MuseScore 4 can optionally render a PDF.
+**Align bars to audio beats** uses [Beat This!](https://github.com/CPJKU/beat_this)
+to estimate beats and downbeats from the original audio and follows its beat
+sequence with a score tempo map. The first use installs the optional tracker
+and downloads its verified model. The tracker currently supports automatic
+bar alignment in 3/4 and 4/4; if it cannot get a reliable grid, the score uses
+a constant-tempo fallback and displays a warning. When the meter is unclear,
+the MIDI meter is retained and a warning is shown. Enter a BPM, beats per bar,
+and/or the first bar-line time in seconds to correct detection, or disable
+audio alignment.
+The score may contain leading rests to preserve a pickup before the first
+bar line. The original MIDI is not changed. A separately installed MuseScore 4
+can optionally render a PDF.
 
 The score is a draft: automatic tempo, beat alignment, hand assignment, pitch
 spelling, durations and ties may need editing. Percussion tracks are omitted
