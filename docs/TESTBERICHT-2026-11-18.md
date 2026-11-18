@@ -26,11 +26,22 @@ built because Inno Setup was unavailable.
 - Portable GUI transcription smoke test: passed using the Piano model and the
   bundled test audio; the generated MIDI contained notes. This does not test
   YourMT3 or six-stem inference.
+- `pytest` and `pytest-mock` were subsequently installed in an isolated test
+  directory. Collection found 182 tests. The full pytest run reached at least
+  74% but was interrupted when the execution environment restarted; it did not
+  produce a final result. A separate check confirmed that
+  `tests/feature/test_wrapper_func.py::test_extract_patch_cqt` fails because
+  `tests/resource/sample_feature.hdf` is missing.
+- A separate selection of 72 pytest tests reported 71 passed and one failure:
+  `test_stem_mode_uses_optional_gpu_and_reports_wav_results` could not initialize
+  Tcl in that combined run. The same test passed when run on its own. This
+  order/environment-dependent behavior remains unresolved.
 
 ## Limitations
 
-A request to install `pytest` and `pytest-mock` was not executed because the
-sandbox's automatic approval review reported a usage limit. Six-stem model
+A first request to install `pytest` and `pytest-mock` was not executed because
+the sandbox's automatic approval review reported a usage limit; installation
+into an isolated test directory succeeded later. Six-stem model
 weights and the optional YourMT3 runtime were not installed, so their real
 combined inference was not tested. GPU inference, fresh installation, upgrades
 and uninstallation were not tested. The single-piano output merges predicted
