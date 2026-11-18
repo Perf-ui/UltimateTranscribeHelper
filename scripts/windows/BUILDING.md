@@ -12,11 +12,12 @@ licence/source obligations have been resolved. The installer is unsigned.
 
 ## Known working build environment
 
-This workspace contains `.runtime311`, a Python 3.11 x64 environment with the
-versions in `requirements-windows.lock`, CPU PyTorch 2.5.1 and torchaudio
-2.5.1, plus ONNX Runtime DirectML 1.20.1. It also has the model weights, the
-NNLS Chroma DLL and source trees listed below. `build_portable.py` checks for
-these prerequisites; it does not install them.
+The known working build used `.runtime311`, a Python 3.11 x64 environment with
+the versions in `requirements-windows.lock`, CPU PyTorch 2.5.1 and torchaudio
+2.5.1, plus ONNX Runtime DirectML 1.20.1. It also used the model weights, the
+NNLS Chroma DLL and source trees listed below. These prerequisites are not all
+included in a fresh clone; `build_portable.py` checks for them but does not
+install them.
 
 Recreating that environment from a clean machine is **not yet automated or
 verified**. In particular, `madmom`, `vamp` and `ncls` required local Windows
@@ -67,7 +68,8 @@ powershell -ExecutionPolicy Bypass -File scripts\windows\build_installer.ps1 -Po
 The portable builder refuses to overwrite an existing destination. The
 installer builder refuses to overwrite an existing EXE; pass `-OutputBaseName`
 for another name, or `-Compiler` for an Inno Setup compiler outside its search
-paths. The default installer is `dist\Omnizart-Windows-Setup-2.7.exe`.
+paths. The default installer name is defined by `OutputBaseName` in
+`build_installer.ps1`.
 
 Run the unit tests and test the portable GUI with CPU and, when available,
 GPU. Test a fresh install, upgrade from a previous version, uninstall, and the

@@ -1,9 +1,10 @@
 # Windows release: model inventory and rights
 
 This is an inventory and a record of the evidence found, not a legal opinion.
-The 2.7 build includes all models below. **Public redistribution is not yet
-cleared**: model-specific terms for several weight files are not established,
-and madmom's bundled model files have a noncommercial licence. Obtain the
+The inventory covers models intended for the Windows bundle as well as
+optional models downloaded or installed separately. **Public redistribution
+is not yet cleared**: model-specific terms for several weight files are not
+established, and madmom's bundled model files have a noncommercial licence. Obtain the
 necessary permissions or replace/remove affected models before public release.
 Code licences do not automatically establish the licence of separate weights.
 
@@ -20,7 +21,7 @@ Code licences do not automatically establish the licence of separate weights.
 | YourMT3+ (optional install) | External `mt3-infer` checkpoint cache | [YourMT3 checkpoint](https://huggingface.co/mimbres/YourMT3) is tagged Apache-2.0. The app uses the optional `mt3-infer` adapter; neither code nor weights are included in the Windows installer. Review upstream notices and the selected model adapter's third-party licenses before redistributing. |
 | MuScriptor (optional install) | External Hugging Face model cache | [MuScriptor software](https://github.com/muscriptor/muscriptor) is MIT; its model weights are CC BY-NC 4.0 and require Hugging Face login and acceptance of the terms. Neither package nor weights are included in the Windows installer. Non-commercial model terms apply. |
 | Beat This! (optional audio bar alignment) | `%LOCALAPPDATA%/Omnizart/optional/beat this/model.ckpt` | [Beat This!](https://github.com/CPJKU/beat_this) code and published weights are MIT. The checkpoint is downloaded on first use and verified by SHA-256; it is not bundled. |
-| Piano SVSep (optional neural score assignment) | `%LOCALAPPDATA%/Omnizart/optional/piano svsep/model.ckpt` | [Piano SVSep](https://github.com/CPJKU/piano_svsep) code is MIT, with its notice included in `omnizart/vendor/piano_svsep/LICENSE`. The checkpoint is downloaded from a pinned upstream commit, verified by SHA-256, and is not bundled. Confirm the checkpoint?s separate redistribution terms before distributing it. |
+| Piano SVSep (optional neural score assignment) | `%LOCALAPPDATA%/Omnizart/optional/piano svsep/model.ckpt` | [Piano SVSep](https://github.com/CPJKU/piano_svsep) code is MIT, with its notice included in `omnizart/vendor/piano_svsep/LICENSE`. The checkpoint is downloaded from a pinned upstream commit, verified by SHA-256, and is not bundled. Confirm the checkpoint's separate redistribution terms before distributing it. |
 | Spleeter 2-stem ONNX | `omnizart/checkpoints/vocal/sherpa-onnx-spleeter-2stems-fp16/` | [sherpa-onnx model download](https://k2-fsa.github.io/sherpa/onnx/source-separation/models.html), derived from [Spleeter](https://github.com/deezer/spleeter), whose code is MIT. Confirm model and conversion redistribution terms before publication. |
 | madmom bundled models | `runtime/Lib/site-packages/madmom/models/` | [madmom licence](https://github.com/CPJKU/madmom/blob/main/LICENSE) states the included model files are CC BY-NC-SA 4.0. Noncommercial distribution is subject to that licence; commercial use requires permission. The package's source code is generally under separate BSD-style terms, subject to exceptions noted upstream. |
 

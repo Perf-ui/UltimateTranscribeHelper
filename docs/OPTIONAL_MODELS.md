@@ -21,8 +21,8 @@ accept its access terms, and download both `model.safetensors` and `config.json`
 folder shown there using **Open MuScriptor folder**. The app loads these local
 files; it does not download the gated weights itself. The weights are licensed
 CC BY-NC 4.0, so they are limited to non-commercial use. Its software is MIT
-licensed. The app selects MuScriptor's MIDI output; the normal Omnizart score
-export can then format that MIDI through MuseScore.
+licensed. The app selects MuScriptor's MIDI output; the score export can turn
+that MIDI into MusicXML, with an optional PDF rendered through MuseScore.
 
 Use Python 3.10–3.12 for MuScriptor. The model's `small` variant is intended
 for CPU use; larger variants need more memory and benefit from a GPU. Consult
@@ -57,10 +57,11 @@ for review. Score export does not alter the MIDI.
 
 ### Optional piano hand model
 
-**Experimental: neural piano hand assignment** uses the MIT-licensed
+**Experimental: neural piano hand assignment** uses the
 [Piano SVSep](https://github.com/CPJKU/piano_svsep) research model as a source
 of staff suggestions. On first use, Omnizart installs dependencies into a
 separate environment and downloads a SHA-256-verified model checkpoint.
+The code is MIT-licensed; the checkpoint's redistribution terms need separate review.
 It requires internet for setup, runs on CPU, and can take time on long pieces.
 The model's suggestions are balanced with hand-span checks; they are not a
 guarantee of playable music. Compare the result with the default assignment.
