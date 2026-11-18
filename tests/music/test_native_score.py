@@ -8,6 +8,24 @@ from omnizart.desktop.notation import export_score, _estimate_tempo, _piano_voic
 
 
 class NativeScoreTests(unittest.TestCase):
+    def test_explicit_flat_key_writes_signature_and_flat_spelling(self):
+        with TemporaryDirectory() as directory:
+            path, output = Path(directory) / 'in.mid', Path(directory) / 'out.musicxml'
+            midi = mido.MidiFile(ticks_per_beat=480)
+            midi.tracks.append(mido.MidiTrack([mido.Message('note_on', note=70, velocity=80),
+                                               mido.Message('note_off', note=70, time=480)]))
+            midi.save(path)
+            export_score(path, output, tempo=120, score_key='Bb')
+            root = ET.parse(output).getroot()
+            self.assertEqual(root.findtext('.//key/fifths'), '-2')
+            self.assertEqual(root.findtext('.//key/mode'), 'major')
+            self.assertEqual(root.findtext('.//note/pitch/step'), 'B')
+            self.assertEqual(root.findtext('.//note/pitch/alter'), '-1')
+
+    def test_key_estimation_does_not_claim_a_key_for_one_note(self):
+        from omnizart.desktop.score_key import estimate_key
+        self.assertIsNone(estimate_key({(0, 0): [(0, 1, 60, 80)]}))
+
     def test_simplified_piano_score_keeps_full_score_and_midi(self):
         with TemporaryDirectory() as directory:
             midi_path = Path(directory) / 'input.mid'

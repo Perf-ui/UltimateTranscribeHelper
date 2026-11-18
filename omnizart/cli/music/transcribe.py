@@ -36,6 +36,7 @@ music = LazyLoader("music", globals(), "omnizart.music")
 @click.option("--neural-staff", is_flag=True, help="Use experimental Piano SVSep staff suggestions for one piano track.")
 @click.option("--simplify-score", is_flag=True, help="Omit conflicting notes from the score if necessary; preserve the MIDI.")
 @click.option("--score-tempo", type=click.FloatRange(30, 300), default=None, help="Score tempo in BPM; omit to estimate it.")
+@click.option("--score-key", default="Auto", help="Score key, for example Bb or F#m; Auto estimates a key.")
 @click.option("--musescore", type=click.Path(exists=True, dir_okay=False), default=None, help="MuseScore executable for optional MusicXML export.")
 @click.option("--lint-notes", is_flag=True, help="Save a non-destructive transcription review report.")
 @click.option("--smooth-notes", is_flag=True, help="Also save a conservatively smoothed MIDI copy.")
@@ -43,7 +44,7 @@ music = LazyLoader("music", globals(), "omnizart.music")
 @click.option("--remove-short-ms", type=click.FloatRange(0, 200), default=0, help="Also remove notes shorter than this duration; 0 disables.")
 def transcribe(input_audio, model_path, output, onset_th, duration_th, instrument_th, frame_th, minimum_note_ms,
                remove_vocals, piano_only, save_accompaniment, include_vocals, separator, uvr_device, gpu_index,
-               compare_midi, score_grid, score, align_bars, score_meter, score_downbeat, neural_staff, simplify_score, score_tempo, musescore, lint_notes, smooth_notes, smooth_gap_ms, remove_short_ms):
+               compare_midi, score_grid, score, align_bars, score_meter, score_downbeat, neural_staff, simplify_score, score_tempo, score_key, musescore, lint_notes, smooth_notes, smooth_gap_ms, remove_short_ms):
     """Transcribe a single audio and output as a MIDI file.
 
     This will output a MIDI file with the same name as the given audio, except the
@@ -147,7 +148,7 @@ def transcribe(input_audio, model_path, output, onset_th, duration_th, instrumen
         from omnizart.desktop.notation import export_score
         score_path = target.with_name(target.stem + ".musicxml")
         try:
-            score_options = dict(tempo=score_tempo, neural_staff=neural_staff,
+            score_options = dict(tempo=score_tempo, score_key=score_key, neural_staff=neural_staff,
                                audio=input_audio, align_bars=align_bars, downbeat=score_downbeat,
                                beats_per_bar=int(score_meter) if score_meter else None,
                                piano=(piano_only or model_path in

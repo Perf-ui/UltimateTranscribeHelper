@@ -48,6 +48,11 @@ The score may contain leading rests to preserve a pickup before the first
 bar line. The original MIDI is not changed. A separately installed MuseScore 4
 can optionally render a PDF.
 
+**Score key** can be selected manually. Auto estimates major or minor keys
+from note durations only when the evidence is sufficiently distinct; otherwise
+no key is asserted. Flat keys use common flat spellings. Key detection and
+enharmonic spelling are estimates and need review. Key changes are not detected.
+
 The score is a draft: automatic tempo, beat alignment, hand assignment, pitch
 spelling, durations and ties may need editing. Percussion tracks are omitted
 from MusicXML but remain in the MIDI. Time-signature changes are not yet supported. Dense piano passages may need

@@ -314,10 +314,13 @@ def _duration_pieces(start, end, measure_length):
                 break
 
 
-def _pitch(note, pitch):
-    # Prefer common sharp spellings; users can respell enharmonics in an editor.
+def _pitch(note, pitch, flats=False):
+    # Choose common flats in flat keys; unusual enharmonics still need review.
     names = [('C', 0), ('C', 1), ('D', 0), ('D', 1), ('E', 0), ('F', 0),
              ('F', 1), ('G', 0), ('G', 1), ('A', 0), ('A', 1), ('B', 0)]
+    if flats:
+        for index, step in ((1, 'D'), (3, 'E'), (6, 'G'), (8, 'A'), (10, 'B')):
+            names[index] = (step, -1)
     step, alter = names[pitch % 12]
     p = _element(note, 'pitch')
     _element(p, 'step', step)
@@ -326,7 +329,7 @@ def _pitch(note, pitch):
     _element(p, 'octave', pitch // 12 - 1)
 
 
-def _write_note(measure, pitches, voice, staff, start, end, kind, dotted, tied_before, tied_after):
+def _write_note(measure, pitches, voice, staff, start, end, kind, dotted, tied_before, tied_after, flats=False):
     for index, pitch_info in enumerate(pitches):
         pitch, velocity = pitch_info[:2]
         note_tied_before = tied_before or (len(pitch_info) > 2 and pitch_info[2])
@@ -334,7 +337,7 @@ def _write_note(measure, pitches, voice, staff, start, end, kind, dotted, tied_b
         note = _element(measure, 'note', dynamics=str(round(velocity * 100 / 90, 2)))
         if index:
             _element(note, 'chord')
-        _pitch(note, pitch)
+        _pitch(note, pitch, flats)
         _element(note, 'duration', end - start)
         if note_tied_before:
             _element(note, 'tie', type='stop')
@@ -367,7 +370,7 @@ def _write_rests(measure, start, end, measure_length, voice, staff):
         if staff is not None:
             _element(note, 'staff', staff)
 
-def export_score(source, destination, tempo=None, piano=True, simplify=False, neural_staff=False, audio=None, align_bars=False, downbeat=None, beats_per_bar=None):
+def export_score(source, destination, tempo=None, piano=True, simplify=False, neural_staff=False, audio=None, align_bars=False, downbeat=None, beats_per_bar=None, score_key='Auto'):
     """Write a 16th-grid MusicXML draft, with independent voices and stable clefs."""
     destination = Path(destination)
     if destination.exists():
@@ -379,6 +382,14 @@ def export_score(source, destination, tempo=None, piano=True, simplify=False, ne
         if not notes:
             raise ValueError('The MIDI contains only percussion; pitched score export requires at least one pitched instrument.')
         warnings.warn('Percussion tracks are omitted from the MusicXML score; the original MIDI keeps all tracks.', UserWarning)
+    from omnizart.desktop.score_key import KEYS, estimate_key
+    if score_key == 'Auto':
+        score_key = estimate_key(notes)
+        if score_key:
+            warnings.warn(f'Score key estimated as {score_key}; review the key signature and spelling.', UserWarning)
+    elif score_key not in KEYS:
+        raise ValueError('Unknown score key: ' + str(score_key))
+    fifths, mode = KEYS[score_key] if score_key else (0, None)
     bpm = float(tempo) if tempo is not None else _estimate_tempo(notes, fallback)
     if not 30 <= bpm <= 300:
         raise ValueError('Score tempo must be between 30 and 300 BPM.')
@@ -471,6 +482,10 @@ def export_score(source, destination, tempo=None, piano=True, simplify=False, ne
             if measure_no == 0:
                 attrs = _element(measure, 'attributes')
                 _element(attrs, 'divisions', 4)
+                if mode:
+                    key_signature = _element(attrs, 'key')
+                    _element(key_signature, 'fifths', fifths)
+                    _element(key_signature, 'mode', mode)
                 time = _element(attrs, 'time')
                 _element(time, 'beats', numerator)
                 _element(time, 'beat-type', denominator)
@@ -516,7 +531,7 @@ def export_score(source, destination, tempo=None, piano=True, simplify=False, ne
                                      staff if is_piano else None)
                     for a, b, kind, dotted in _duration_pieces(segment_start, segment_end, length):
                         _write_note(measure, pitches, voice, staff if is_piano else None, a, b, kind, dotted,
-                                    a > start, b < end)
+                                    a > start, b < end, fifths < 0)
                     cursor = segment_end
                 if cursor < right:
                     _write_rests(measure, cursor, right, length, voice,
