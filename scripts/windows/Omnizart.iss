@@ -6,7 +6,7 @@
 [Setup]
 AppId={{7A581ADD-C170-4D4C-BF6E-7D5B68D0D0D7}
 AppName=Omnizart
-AppVersion=2.7.0
+AppVersion=2.12.0
 AppPublisher=Omnizart contributors
 DefaultDirName={localappdata}\Programs\Omnizart
 DefaultGroupName=Omnizart
@@ -17,7 +17,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 SetupArchitecture=x64
 OutputDir=..\..\dist
-OutputBaseFilename=Omnizart-Windows-Setup-2.7
+OutputBaseFilename=Omnizart-Windows-Setup-2.12
 Compression=zip/1
 SolidCompression=no
 WizardStyle=modern
@@ -34,6 +34,20 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 ; the same Python module, so remove only its obsolete package metadata.
 [InstallDelete]
 Type: filesandordirs; Name: "{app}\runtime\Lib\site-packages\onnxruntime-1.20.1.dist-info"
+; An earlier optional-model installer could upgrade scientific dependencies in
+; place. Remove only these managed packages and their metadata before copying
+; the bundled versions, so old extension modules cannot shadow the new ones.
+Type: filesandordirs; Name: "{app}\runtime\Lib\site-packages\numpy"
+Type: filesandordirs; Name: "{app}\runtime\Lib\site-packages\numpy.libs"
+Type: filesandordirs; Name: "{app}\runtime\Lib\site-packages\numpy-*.dist-info"
+Type: filesandordirs; Name: "{app}\runtime\Lib\site-packages\numba"
+Type: filesandordirs; Name: "{app}\runtime\Lib\site-packages\numba-*.dist-info"
+Type: filesandordirs; Name: "{app}\runtime\Lib\site-packages\llvmlite"
+Type: filesandordirs; Name: "{app}\runtime\Lib\site-packages\llvmlite.libs"
+Type: filesandordirs; Name: "{app}\runtime\Lib\site-packages\llvmlite-*.dist-info"
+Type: filesandordirs; Name: "{app}\runtime\Lib\site-packages\scipy"
+Type: filesandordirs; Name: "{app}\runtime\Lib\site-packages\scipy.libs"
+Type: filesandordirs; Name: "{app}\runtime\Lib\site-packages\scipy-*.dist-info"
 
 [Files]
 Source: "{#AppSource}\*"; DestDir: "{app}"; Excludes: "*.pyc"; Flags: ignoreversion recursesubdirs createallsubdirs
