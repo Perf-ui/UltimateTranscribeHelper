@@ -56,8 +56,9 @@ class NativeScoreTests(unittest.TestCase):
         source = {1: [(0, 4, pitch, 80) for pitch in (60, 62, 64, 65, 67, 72)],
                   2: [(0, 4, 36, 80), (0, 4, 60, 80)]}
         original = {staff: list(notes) for staff, notes in source.items()}
-        with self.assertWarnsRegex(UserWarning, 'omitted.*measures 1'):
+        with self.assertWarnsRegex(UserWarning, 'omitted.*measures 1') as warning:
             result = _simplify_piano_hands(source, 16)
+        self.assertIn('Omitted notes (measure, hand, MIDI pitch):', str(warning.warning))
         self.assertEqual(source, original)
         for staff in result:
             pitches = [note[2] for note in result[staff]]

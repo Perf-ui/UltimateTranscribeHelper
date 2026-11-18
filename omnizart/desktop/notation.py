@@ -225,8 +225,13 @@ def _simplify_piano_hands(staff_notes, measure_length):
     if omitted:
         measures = sorted({note[0] // measure_length + 1 for _, note in omitted})
         warnings.warn('Score simplification omitted %d note(s) in measures %s; '
-                      'the original MIDI is unchanged. Review the score for playability.' %
-                      (len(omitted), ', '.join(map(str, measures))), UserWarning)
+                      'the original MIDI is unchanged. Review the score for playability. '
+                      'Omitted notes (measure, hand, MIDI pitch): %s%s' %
+                      (len(omitted), ', '.join(map(str, measures)),
+                       '; '.join('%d %s %d' % (note[0] // measure_length + 1,
+                                                 'right' if staff == 1 else 'left', note[2])
+                                 for staff, note in omitted[:30]),
+                       ' ...' if len(omitted) > 30 else ''), UserWarning)
     return output
 
 
