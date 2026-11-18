@@ -1,9 +1,8 @@
 # Windows release checklist
 
 Do not publish the current bundle until the open model and dependency rights
-in [WINDOWS_MODELS.md](WINDOWS_MODELS.md) have been resolved. The existing
-2.7 installer predates the latest licence-document correction and must be
-rebuilt after this review.
+in [WINDOWS_MODELS.md](WINDOWS_MODELS.md) have been resolved. Rebuild any
+installer that predates the completed licence review.
 
 ## Installer and upgrade
 
@@ -19,9 +18,9 @@ rebuilt after this review.
   runtime and CPU fallback both work. Test uninstall afterward.
 - The upgrade test changes the Windows uninstall registry; do not run it in a
   user account with a real Omnizart installation unless it is intentionally
-  being upgraded. The current workspace contains an isolated test installation
-  in `windows-wheel-check/upgrade-test`; uninstall it before conducting a new
-  test or relying on that account's Omnizart installation record.
+  being upgraded. If an isolated test installation already exists, uninstall
+  it before conducting a new test or relying on that account's Omnizart
+  installation record.
 - Check a fresh install, GUI launch, a CPU transcription, optional GPU UVR
   separation, and upgrading from another supported installer version.
 

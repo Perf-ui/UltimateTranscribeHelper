@@ -1,94 +1,83 @@
-# OMNIZART
+# Ultimate Transcribe Helper
 
-For the Windows desktop version, see [Windows build instructions](scripts/windows/BUILDING.md)
-and the [model and licensing inventory](docs/WINDOWS_MODELS.md). The current
-bundle requires further model-rights review before public distribution.
+Ultimate Transcribe Helper is a Windows desktop application for turning music
+recordings into MIDI and other editable outputs. It builds on
+[Omnizart](https://github.com/Music-and-Culture-Technology-Lab/omnizart) and
+adds a graphical interface, additional transcription models, audio separation
+and score-export tools.
 
-[![build](https://github.com/Music-and-Culture-Technology-Lab/omnizart/workflows/general-check/badge.svg)](https://github.com/Music-and-Culture-Technology-Lab/omnizart/actions?query=workflow%3Ageneral-check)
-[![docs](https://github.com/Music-and-Culture-Technology-Lab/omnizart/workflows/docs/badge.svg?branch=build_doc)](https://music-and-culture-technology-lab.github.io/omnizart-doc/)
-[![PyPI version](https://badge.fury.io/py/omnizart.svg)](https://pypi.org/project/omnizart/)
-![PyPI - License](https://img.shields.io/pypi/l/omnizart)
-[![PyPI - Downloads](https://img.shields.io/pypi/dm/omnizart)](https://pypistats.org/packages/omnizart)
-[![Docker Pulls](https://img.shields.io/docker/pulls/mctlab/omnizart)](https://hub.docker.com/r/mctlab/omnizart)
+## Features
 
-[![DOI](https://joss.theoj.org/papers/10.21105/joss.03391/status.svg)](https://doi.org/10.21105/joss.03391)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.5769022.svg)](https://doi.org/10.5281/zenodo.5769022)
+- Transcribe pitched instruments, voice, chords and drums; beat tracking uses
+  MIDI input. Available outputs depend on the selected mode and include MIDI,
+  CSV and, for vocal pitch contour, WAV.
+- Choose between Omnizart models and additional models such as Basic Pitch and
+  Transkun. Other models can be installed or downloaded separately; see
+  [optional models](docs/OPTIONAL_MODELS.md) and the
+  [model inventory](docs/WINDOWS_MODELS.md).
+- Reduce vocals or separate audio stems using supported models. Optional
+  DirectML acceleration is available for supported separation models.
+- Create an editable MusicXML score from MIDI, optionally render a PDF with a
+  separate MuseScore 4 installation, and generate note-review reports or
+  cleaned MIDI copies.
 
+Transcription and notation are estimates and may require manual correction.
+Optional components and model downloads can require an internet connection;
+see the model documentation for their requirements and terms.
 
-Omnizart is a Python library that aims for democratizing automatic music transcription.
-Given polyphonic music, it is able to transcribe pitched instruments, vocal melody, chords, drum events, and beat.
-This is powered by the research outcomes from [Music and Culture Technology (MCT) Lab](https://sites.google.com/view/mctl/home). The paper has been published to [Journal of Open Source Software (JOSS)](https://doi.org/10.21105/joss.03391).
+## Windows application
 
-### Transcribe your favorite songs now in Colab [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Music-and-Culture-Technology-Lab/omnizart/blob/master/colab.ipynb) or [![Replicate](https://replicate.com/breezewhite/omnizart/badge)](https://replicate.ai/breezewhite/omnizart)
+The repository contains the application source, not a ready-to-run Windows
+installation. The Windows package requires a prepared 64-bit Python 3.11
+runtime, native dependencies and model files. Recreating that environment on
+a clean machine is not yet automated or verified.
 
-# Quick start
+Clone this repository with:
 
-Visit the [complete document](https://music-and-culture-technology-lab.github.io/omnizart-doc/) for detailed guidance.
+```powershell
+git clone https://github.com/TomOdellSheetMusic/UltimateTranscribeHelper.git
+cd UltimateTranscribeHelper
+```
 
-## Pip
-``` bash
-# Install omnizart
-pip install omnizart
+For prerequisites, model files and packaging commands, read the
+[Windows build instructions](scripts/windows/BUILDING.md). After building a
+portable package, launch `Omnizart.vbs` inside the package. The
+[Windows user guide](scripts/windows/README.txt) describes the interface and
+its options.
 
-# Download the checkpoints
-omnizart download-checkpoints
+## Omnizart command line
 
-# Transcribe your songs
+The original Omnizart command-line interface is retained in this source tree.
+Once its dependencies and checkpoints are installed, examples include:
+
+```text
 omnizart drum transcribe <path/to/audio.wav>
 omnizart chord transcribe <path/to/audio.wav>
 omnizart music transcribe <path/to/audio.wav>
 ```
 
-## Docker
-``` bash
-docker pull mctlab/omnizart:latest
-docker run -it mctlab/omnizart:latest bash
-```
+The upstream [Omnizart documentation](https://music-and-culture-technology-lab.github.io/omnizart-doc/)
+covers its library and command-line tools. Installing the upstream PyPI or
+Docker package does not install this repository's Windows desktop additions.
 
-## Conda (install from source)
-``` bash
-git clone https://github.com/Music-and-Culture-Technology-Lab/omnizart
-cd omnizart
-# Create a new conda environment
-conda env create -f environment.yml
-conda activate omnizart
-# Install omnizart
-pip install .
-omnizart download-checkpoints
-```
+## Licences and distribution
 
-# Supported applications
-| Application      | Transcription      | Training           | Evaluation | Description                                      |
-|------------------|--------------------|--------------------|------------|--------------------------------------------------|
-| music            | :heavy_check_mark: | :heavy_check_mark: |            | Transcribe musical notes of pitched instruments. |
-| drum             | :heavy_check_mark: | :interrobang:      |            | Transcribe events of percussive instruments.     |
-| vocal            | :heavy_check_mark: | :heavy_check_mark: |            | Transcribe note-level vocal melody.              |
-| vocal-contour    | :heavy_check_mark: | :heavy_check_mark: |            | Transcribe frame-level vocal melody (F0).        |
-| chord            | :heavy_check_mark: | :heavy_check_mark: |            | Transcribe chord progressions.                   |
-| beat             | :heavy_check_mark: | :heavy_check_mark: |            | Transcribe beat position.                        |
+The original project licence and copyright notice are in [LICENSE](LICENSE).
+Third-party code, dependencies and model weights may have separate terms; the
+project's MIT licence does not automatically establish the licence of each
+model. The NNLS Chroma plugin is GPL-2.0-or-later; see its
+[licence and build information](omnizart/resource/vamp/BUILD.md).
 
-**NOTES**
-The current implementation for the drum model has unknown bugs, preventing loss convergence when training from scratch.
-Fortunately, you can still enjoy drum transcription with the provided checkpoints.
+The [Windows model and rights inventory](docs/WINDOWS_MODELS.md) records
+known terms and unresolved questions. In particular, madmom's bundled model
+files have noncommercial terms, and redistribution rights for several other
+weights have not been confirmed. Review and resolve the applicable model,
+dependency, notice and source obligations before distributing a build; see
+the [release checklist](docs/WINDOWS_RELEASE_CHECKLIST.md).
 
-## Compatibility Issue
-Currently, Omnizart is **incompatible for ARM-based MacOS** system due to the underlying dependencies.
-More details can be found in the [issue #38](https://github.com/Music-and-Culture-Technology-Lab/omnizart/issues/38).
+## Attribution
 
-## Citation
-If you use this software in your work, please cite:
-
-```
-@article{Wu2021,
-  doi = {10.21105/joss.03391},
-  url = {https://doi.org/10.21105/joss.03391},
-  year = {2021},
-  publisher = {The Open Journal},
-  volume = {6},
-  number = {68},
-  pages = {3391},
-  author = {Yu-Te Wu and Yin-Jyun Luo and Tsung-Ping Chen and I-Chieh Wei and Jui-Yang Hsu and Yi-Chin Chuang and Li Su},
-  title = {Omnizart: A General Toolbox for Automatic Music Transcription},
-  journal = {Journal of Open Source Software}
-}
-```
+This project builds on Omnizart by the Music and Culture Technology Lab. If
+you use Omnizart in research, cite its [JOSS paper](https://doi.org/10.21105/joss.03391).
+Further third-party notices are included alongside the relevant components and
+in the model inventory.

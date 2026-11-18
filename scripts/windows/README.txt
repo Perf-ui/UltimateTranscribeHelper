@@ -54,9 +54,10 @@ bar lines; its verified model downloads on first use. The first bar-line time
 can be entered manually. Choose MuseScore only if you also want a PDF. Score timing,
 voices and spelling are estimates; review the resulting notation. The original
 MIDI is not changed. Optional neural piano hand assignment installs the
-MIT-licensed Piano SVSep model and dependencies on first use. The optional
-simplify-score setting can omit conflicting notes from the score, with a
-warning; the original MIDI is preserved.
+Piano SVSep code, its model checkpoint and dependencies on first use. The code
+is MIT-licensed; the checkpoint's redistribution terms need separate review.
+The optional simplify-score setting can omit conflicting notes from the score,
+with a warning; the original MIDI is preserved.
 
 
 Optional "Create note review report" writes a separate `_review.txt` with
