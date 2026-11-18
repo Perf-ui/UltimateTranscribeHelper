@@ -9,6 +9,26 @@ from omnizart.cli.music.transcribe import transcribe
 
 
 class SeparationCliTests(unittest.TestCase):
+    def test_piano_simplification_writes_full_and_separate_score(self):
+        import mido
+        with TemporaryDirectory() as directory:
+            folder = Path(directory)
+            audio = folder / 'song.wav'
+            audio.touch()
+            def make_midi(*args):
+                midi = mido.MidiFile()
+                midi.tracks.append(mido.MidiTrack([
+                    mido.Message('note_on', note=60, velocity=80),
+                    mido.Message('note_off', note=60, time=480)]))
+                midi.save(str(folder / 'song.mid'))
+            with patch('omnizart.cli.music.transcribe._transcribe', side_effect=make_midi):
+                result = CliRunner().invoke(transcribe, [str(audio), '--model-path', 'Transkun (piano)',
+                    '--output', str(folder), '--score', '--simplify-score'])
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertTrue((folder / 'song.musicxml').is_file())
+            self.assertTrue((folder / 'song_simplified.musicxml').is_file())
+            self.assertTrue((folder / 'song.mid').is_file())
+
     def test_optional_uvr_model_is_routed(self):
         with TemporaryDirectory() as directory:
             audio = Path(directory) / "song.wav"

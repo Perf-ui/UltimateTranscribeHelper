@@ -72,7 +72,10 @@ automatically remove notes that make a passage unplayable. Compare the result
 with the default assignment and review difficult passages.
 This option requires a single piano instrument track.
 
-**Simplify score when needed** is separate and off by default. For non-piano
-parts exceeding four overlapping voices it may omit quieter conflicting notes
-from the MusicXML score, with a warning containing the number omitted. It
-never modifies the original MIDI.
+**Simplify score when needed** is off by default. For piano it creates a separate
+`_simplified.musicxml` in addition to the full score and may omit
+notes to reduce simultaneous hand spans and note counts, preserving the top
+right-hand and bottom left-hand notes where possible. For other instruments it
+may omit quieter conflicting groups when more than four voices overlap. It
+reports omissions and never changes the original MIDI. This heuristic does not
+guarantee playability; review the result and compare it with the full score.

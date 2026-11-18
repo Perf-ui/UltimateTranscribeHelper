@@ -145,6 +145,8 @@ def _assign_piano_hands(entries, measure_length=16, preferences=None):
         attacks[entry[0]].append((entry, preferences[index] if preferences is not None else None))
     assigned = {1: [], 2: []}
     active = {1: [], 2: []}
+    positions = {1: None, 2: None}
+    last_onset = {1: None, 2: None}
     difficult_measures = set()
     for onset, attack in sorted(attacks.items()):
         attack.sort(key=lambda item: item[0][2])
@@ -167,7 +169,12 @@ def _assign_piano_hands(entries, measure_length=16, preferences=None):
             misplaced = sum(max(0, n[2] - 60) for n in incoming[:cut]) + sum(max(0, 60 - n[2]) for n in incoming[cut:])
             disagreement = sum(preference is not None and preference != (2 if index < cut else 1)
                                for index, (_, preference) in enumerate(attack))
-            cost = 10 * excess + 20 * fingers + 3 * crossing + left_span + right_span + .1 * misplaced + 4 * disagreement
+            movement = 0
+            for staff, group in ((2, incoming[:cut]), (1, incoming[cut:])):
+                if group and positions[staff] is not None:
+                    center = sum(note[2] for note in group) / len(group)
+                    movement += abs(center - positions[staff]) / max(1, onset - last_onset[staff])
+            cost = 10 * excess + 20 * fingers + 3 * crossing + left_span + right_span + .1 * misplaced + 4 * disagreement + movement
             if best is None or cost < best[0]:
                 best = (cost, cut, left_span, right_span, len(set(left_pitches)), len(set(right_pitches)))
         _, cut, left_span, right_span, left_count, right_count = best
@@ -176,6 +183,9 @@ def _assign_piano_hands(entries, measure_length=16, preferences=None):
         for staff, group in ((2, incoming[:cut]), (1, incoming[cut:])):
             assigned[staff].extend(group)
             active[staff].extend(group)
+            if group:
+                positions[staff] = sum(note[2] for note in group) / len(group)
+                last_onset[staff] = onset
     if difficult_measures:
         measures = sorted(difficult_measures)
         shown = ", ".join(str(number) for number in measures[:12])
@@ -183,6 +193,41 @@ def _assign_piano_hands(entries, measure_length=16, preferences=None):
             shown += ", ?"
         warnings.warn(f'Piano hand spans or held-note counts need review in measures {shown} ({len(measures)} measures total).', UserWarning)
     return assigned
+
+
+def _simplify_piano_hands(staff_notes, measure_length):
+    """Omit score notes until each instantaneous hand fits basic limits.
+
+    Preserve the top melody and lowest bass when possible. This is a heuristic,
+    not a guarantee of playability; the input MIDI is never changed.
+    """
+    output = {staff: list(notes) for staff, notes in staff_notes.items()}
+    omitted = []
+    for staff in (1, 2):
+        notes = output[staff]
+        for onset in sorted({note[0] for note in notes}):
+            while True:
+                active = [note for note in notes if note[0] <= onset < note[1]]
+                pitches = sorted({note[2] for note in active})
+                if len(pitches) <= 5 and (not pitches or pitches[-1] - pitches[0] <= 12):
+                    break
+                protected = max(pitches) if staff == 1 else min(pitches)
+                candidates = [note for note in active if note[2] != protected]
+                if not candidates:
+                    break
+                def rank(note):
+                    remaining = [p for p in pitches if p != note[2]]
+                    span = remaining[-1] - remaining[0] if remaining else 0
+                    return (max(0, span - 12), max(0, len(remaining) - 5), note[3], note[1] - note[0])
+                removed = min(candidates, key=rank)
+                notes.remove(removed)
+                omitted.append((staff, removed))
+    if omitted:
+        measures = sorted({note[0] // measure_length + 1 for _, note in omitted})
+        warnings.warn('Score simplification omitted %d note(s) in measures %s; '
+                      'the original MIDI is unchanged. Review the score for playability.' %
+                      (len(omitted), ', '.join(map(str, measures))), UserWarning)
+    return output
 
 
 def _sliced_piano_voices(staff_notes):
@@ -403,6 +448,8 @@ def export_score(source, destination, tempo=None, piano=True, simplify=False, ne
             quantized.sort()
             preferences = predict_staff(quantized, length, denominator)
         staff_notes = _assign_piano_hands(quantized, length, preferences) if is_piano else {1: quantized}
+        if simplify and is_piano:
+            staff_notes = _simplify_piano_hands(staff_notes, length)
         score_part = _element(parts, 'score-part', id=f'P{number}')
         _element(score_part, 'part-name', names.get(key[0]) or ('Piano' if is_piano else f'Instrument {number}'))
         inst = _element(score_part, 'score-instrument', id=f'I{number}')

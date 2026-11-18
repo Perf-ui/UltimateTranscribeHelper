@@ -32,7 +32,7 @@ ACCENT = "#a49aff"
 FIELD = "#252d40"
 CUSTOM_MODEL = "Imported Omnizart model"
 RESULT_SUFFIXES = (".mid", ".midi", ".csv", "_beat.csv", "_down_beat.csv", "_f0.csv",
-                   "_trans.wav", "_accompaniment.wav", "_smoothed.mid", "_review.txt", "_comparison.txt", ".musicxml", "_drums.wav",
+                   "_trans.wav", "_accompaniment.wav", "_smoothed.mid", "_review.txt", "_comparison.txt", ".musicxml", "_simplified.musicxml", "_drums.wav",
                    "_bass.wav", "_other.wav", "_vocals.wav", "_guitar.wav", "_piano.wav", ".pdf")
 
 SETTING_HELP = {
@@ -447,7 +447,7 @@ class Application(ttk.Frame):
         Tooltip(self.score_grid_picker, "Auto estimates tempo from the notes. Enter a BPM to override it; notation uses a sixteenth-note grid.")
         self.score_simplify_option = ttk.Checkbutton(card, text="Simplify score when needed", variable=self.simplify_score, style="App.TCheckbutton")
         self.score_simplify_option.grid(row=20, column=0, columnspan=2, sticky="w", pady=(10, 0))
-        Tooltip(self.score_simplify_option, "If an instrument exceeds four overlapping voices, omit quieter conflicting notes from the score. The original MIDI is unchanged; omissions are reported.")
+        Tooltip(self.score_simplify_option, "For piano, creates a separate simplified MusicXML score. For other instruments, simplifies the score if necessary. Notes may be omitted; the original MIDI is preserved.")
         self.neural_staff_option = ttk.Checkbutton(card, text="Experimental: neural piano hand assignment", variable=self.neural_staff, style="App.TCheckbutton")
         self.neural_staff_option.grid(row=21, column=0, columnspan=2, sticky="w", pady=(10, 0))
         Tooltip(self.neural_staff_option, "Uses Piano SVSep on CPU to suggest piano staves, balanced with hand reach. First use installs dependencies and downloads its model. Results still require review.")

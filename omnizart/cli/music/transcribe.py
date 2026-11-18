@@ -147,13 +147,18 @@ def transcribe(input_audio, model_path, output, onset_th, duration_th, instrumen
         from omnizart.desktop.notation import export_score
         score_path = target.with_name(target.stem + ".musicxml")
         try:
-            bpm = export_score(target, score_path, tempo=score_tempo, simplify=simplify_score, neural_staff=neural_staff,
+            score_options = dict(tempo=score_tempo, neural_staff=neural_staff,
                                audio=input_audio, align_bars=align_bars, downbeat=score_downbeat,
                                beats_per_bar=int(score_meter) if score_meter else None,
                                piano=(piano_only or model_path in
                                       ("Piano", "PianoV2", "Transkun (piano)",
                                        "Transkun V2 Aug", "Pedal Piano")))
+            bpm = export_score(target, score_path, simplify=simplify_score and not score_options['piano'], **score_options)
             click.echo(f"MusicXML draft saved to {score_path} ({bpm:g} BPM). Review its notation.")
+            if simplify_score and score_options['piano']:
+                simplified_path = target.with_name(target.stem + "_simplified.musicxml")
+                export_score(target, simplified_path, simplify=True, **score_options)
+                click.echo(f"Simplified MusicXML saved to {simplified_path}. Review omitted notes and playability.")
             if musescore:
                 from omnizart.desktop.score_export import _run_musescore
                 pdf = target.with_name(target.stem + ".pdf")
