@@ -37,6 +37,27 @@ built because Inno Setup was unavailable.
   Tcl in that combined run. The same test passed when run on its own. This
   order/environment-dependent behavior remains unresolved.
 
+## Follow-up: complete pytest run
+
+After the initial interruption, a diagnostic run completed all 182 tests, with
+180 passing and two failures: the missing CQT reference fixture and a Tk/Tcl
+initialization error under pytest's default file-descriptor capture. The latter
+was reproducible with the desktop test module under default capture, while the
+same tests passed with `--capture=sys` and with capture disabled. The project
+now defaults to `--capture=sys` for pytest; this addresses the observed Tcl
+test failure, not a proven cause of the earlier execution-host interruption.
+
+The official `resource.zip` from the upstream `checkpoints-20211001` release
+supplied `resource/sample_feature.hdf` to `tests/resource/sample_feature.hdf`.
+The fixture is ignored by Git. When absent, the affected regression test now
+reports an explicit skip; it still runs when the reference file is available.
+
+With those test changes (commit `8a1ab3f`) and the reference fixture present,
+`python -m pytest tests -q --disable-warnings -rs --tb=short` completed with
+**182 passed, 11 subtests passed, 13 warnings** in 144.96 seconds. No tests
+were skipped. `python -m pip check` also passed. The original host restart did
+not recur, so its underlying cause remains unconfirmed.
+
 ## Limitations
 
 A first request to install `pytest` and `pytest-mock` was not executed because
