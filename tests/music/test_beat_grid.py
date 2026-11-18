@@ -55,6 +55,7 @@ class BeatGridTests(unittest.TestCase):
             root = ET.parse(target).getroot()
             first_pitched = next(m for m in root.findall('.//part/measure') if m.find('.//pitch') is not None)
             self.assertEqual(first_pitched.get('number'), '2')
+            self.assertAlmostEqual(float(root.findtext('.//metronome/per-minute')), 120)
             tempi = [float(sound.get('tempo')) for sound in root.findall('.//sound[@tempo]')]
             self.assertTrue(any(abs(bpm - 100) < .01 for bpm in tempi))
             self.assertTrue(any(abs(bpm - 120) < .01 for bpm in tempi))

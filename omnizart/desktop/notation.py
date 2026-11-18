@@ -449,8 +449,9 @@ def export_score(source, destination, tempo=None, piano=True, simplify=False, ne
                 dt = _element(direction, 'direction-type')
                 metro = _element(dt, 'metronome')
                 _element(metro, 'beat-unit', 'quarter')
-                _element(metro, 'per-minute', f'{bpm:g}')
-                _element(direction, 'sound', tempo=f'{bpm:g}')
+                initial_bpm = grid.tempo_marks(length, 0)[0][1] if grid else bpm
+                _element(metro, 'per-minute', f'{initial_bpm:g}')
+                _element(direction, 'sound', tempo=f'{initial_bpm:g}')
             if grid:
                 for offset, current_bpm in grid.tempo_marks(length, measure_no):
                     direction = _element(measure, 'direction')
