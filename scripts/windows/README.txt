@@ -51,7 +51,10 @@ Optional "Create formatted MusicXML score" creates an editable score from
 MIDI without requiring MuseScore. Tempo is estimated automatically or can be
 entered manually. Choose MuseScore only if you also want a PDF. Score timing,
 voices and spelling are estimates; review the resulting notation. The original
-MIDI is not changed.
+MIDI is not changed. Optional neural piano hand assignment installs the
+MIT-licensed Piano SVSep model and dependencies on first use. The optional
+simplify-score setting can omit conflicting notes from the score, with a
+warning; the original MIDI is preserved.
 
 
 Optional "Create note review report" writes a separate `_review.txt` with

@@ -1,5 +1,6 @@
-﻿"""Exercise score export command construction without a GUI display."""
+"""Exercise score export command construction without a GUI display."""
 from pathlib import Path
+from queue import Queue
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 import unittest
@@ -24,7 +25,7 @@ class ScoreButtonTests(unittest.TestCase):
                 piano_only=var(False), remove_vocals=var(False), include_vocals=var(False),
                 separator_model=var('UVR MDX (recommended)'), use_gpu=var(False), gpu_index=var('0'),
                 smooth_notes=var(False), remove_short_notes=var(False), compare_enabled=var(False),
-                musescore_export=var(True), score_tempo=var('154'), pdf_export=var(False),
+                musescore_export=var(True), neural_staff=var(False), simplify_score=var(True), score_tempo=var('154'), pdf_export=var(False),
                 musescore_path=var(''), lint_notes=var(False), save_folders=Mock(),
                 log=Mock(), start_button=Mock(), open_button=Mock(), progress=Mock(), status=Mock(),
                 run=Mock())
@@ -32,9 +33,30 @@ class ScoreButtonTests(unittest.TestCase):
                 Application.start(app)
             cmd = thread.call_args.kwargs['args'][0]
             self.assertIn('--score', cmd)
+            self.assertIn('--simplify-score', cmd)
             self.assertEqual(cmd[cmd.index('--score-tempo') + 1], '154')
             self.assertNotIn('--musescore', cmd)
             app.output_lock.unlink()
+            app.neural_staff = var(True)
+            with patch('omnizart.desktop.app.threading.Thread') as thread, patch('omnizart.desktop.optional_models.ready', return_value=True):
+                Application.start(app)
+            self.assertIn('--neural-staff', thread.call_args.kwargs['args'][0])
+            app.output_lock.unlink()
+
+    def test_simplification_omissions_are_shown_after_success(self):
+        with TemporaryDirectory() as temp:
+            folder = Path(temp)
+            base = folder / 'score'
+            base.with_suffix('.mid').touch()
+            messages = Queue()
+            messages.put(('log', 'notation.py:1: UserWarning: Score simplification omitted 2 note(s).\n'))
+            messages.put(('done', (0, folder)))
+            app = SimpleNamespace(messages=messages, score_warnings=[], log=Mock(), output_lock=None,
+                                  progress=Mock(), start_button=Mock(), open_button=Mock(), output_folder=folder,
+                                  active_mode='music', output_base=base, status=Mock(), after=Mock(), poll=Mock())
+            with patch('omnizart.desktop.app.midi_note_count', return_value=3), patch('omnizart.desktop.app.messagebox.showwarning') as warning:
+                Application.poll(app)
+            self.assertIn('omitted 2 note', warning.call_args.args[1])
 
 
 if __name__ == '__main__':

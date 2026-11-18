@@ -264,6 +264,8 @@ class Application(ttk.Frame):
         self.compare_path = tk.StringVar()
         self.score_grid = tk.StringVar(value="Off")
         self.score_tempo = tk.StringVar(value="Auto")
+        self.simplify_score = tk.BooleanVar(value=False)
+        self.neural_staff = tk.BooleanVar(value=False)
         self.musescore_export = tk.BooleanVar(value=False)
         self.pdf_export = tk.BooleanVar(value=False)
         self.musescore_path = tk.StringVar()
@@ -440,6 +442,12 @@ class Application(ttk.Frame):
         self.score_grid_picker = ttk.Entry(card, textvariable=self.score_tempo, style="App.TEntry", width=8)
         self.score_grid_picker.grid(row=19, column=1, sticky="w", padx=(14, 0), pady=(10, 0))
         Tooltip(self.score_grid_picker, "Auto estimates tempo from the notes. Enter a BPM to override it; notation uses a sixteenth-note grid.")
+        self.score_simplify_option = ttk.Checkbutton(card, text="Simplify score when needed", variable=self.simplify_score, style="App.TCheckbutton")
+        self.score_simplify_option.grid(row=20, column=0, columnspan=2, sticky="w", pady=(10, 0))
+        Tooltip(self.score_simplify_option, "If an instrument exceeds four overlapping voices, omit quieter conflicting notes from the score. The original MIDI is unchanged; omissions are reported.")
+        self.neural_staff_option = ttk.Checkbutton(card, text="Experimental: neural piano hand assignment", variable=self.neural_staff, style="App.TCheckbutton")
+        self.neural_staff_option.grid(row=21, column=0, columnspan=2, sticky="w", pady=(10, 0))
+        Tooltip(self.neural_staff_option, "Uses Piano SVSep on CPU to suggest piano staves, balanced with hand reach. First use installs dependencies and downloads its model. Results still require review.")
 
         self.settings_card = ttk.Frame(body, style="Card.TFrame", padding=(22, 12))
         self.settings_card.grid(row=2, column=0, sticky="ew", pady=(12, 0))
@@ -563,6 +571,8 @@ class Application(ttk.Frame):
             self.compare_button.configure(state="normal")
             self.score_grid_picker.configure(state="normal")
             self.score_option.configure(state="normal")
+            self.score_simplify_option.configure(state="normal")
+            self.neural_staff_option.configure(state="normal")
             self.score_button.configure(state="normal")
             self.pdf_option.configure(state="normal")
             self.lint_option.configure(state="normal")
@@ -635,6 +645,8 @@ class Application(ttk.Frame):
             self.compare_button.configure(state="disabled")
             self.score_grid_picker.configure(state="disabled")
             self.score_option.configure(state="disabled")
+            self.score_simplify_option.configure(state="disabled")
+            self.neural_staff_option.configure(state="disabled")
             self.score_button.configure(state="disabled")
             self.pdf_option.configure(state="disabled")
             self.lint_option.configure(state="disabled")
@@ -1078,6 +1090,27 @@ class Application(ttk.Frame):
                 if model_checkpoint() is None:
                     messagebox.showerror("MuScriptor model", f"Download the small model from its Hugging Face page and place exactly one .safetensors file and its config.json here:\n\n{model_folder()}")
                     return
+        if mode == "music" and self.musescore_export.get() and self.neural_staff.get():
+            if not (self.piano_only.get() or selected_model in ("Piano", "PianoV2", "Transkun (piano)", "Transkun V2 Aug", "Pedal Piano")):
+                messagebox.showerror("Neural piano score", "Select a piano model or piano-only separation for neural hand assignment.")
+                return
+            from omnizart.desktop.optional_models import install, ready
+            if not ready("Piano SVSep"):
+                if self.optional_installing:
+                    return
+                self.optional_installing = True
+                self.start_button.configure(state="disabled")
+                self.status.set("Installing Piano SVSep and its model. This may take several minutes...")
+
+                def install_score_model():
+                    try:
+                        install("Piano SVSep")
+                        self.messages.put(("optional_install_done", ("Piano SVSep", 0, "")))
+                    except Exception as exc:
+                        self.messages.put(("optional_install_done", ("Piano SVSep", 1, str(exc))))
+
+                threading.Thread(target=install_score_model, daemon=True).start()
+                return
         if mode == "music" and (selected_model == CUSTOM_MODEL or selected_model in self.custom_models) and (
                 not imported_path or not validate_model_folder(imported_path)):
             messagebox.showerror("Model", "Use Models & import to select a complete Omnizart music checkpoint.")
@@ -1186,6 +1219,10 @@ class Application(ttk.Frame):
                 cmd.extend(["--compare-midi", self.compare_path.get()])
             if self.musescore_export.get():
                 cmd.append("--score")
+                if self.neural_staff.get():
+                    cmd.append("--neural-staff")
+                if self.simplify_score.get():
+                    cmd.append("--simplify-score")
                 if score_tempo.lower() != "auto":
                     cmd.extend(["--score-tempo", score_tempo])
                 if self.pdf_export.get():
@@ -1244,7 +1281,7 @@ class Application(ttk.Frame):
                 kind, value = self.messages.get_nowait()
                 if kind == "log":
                     if "UserWarning:" in value and any(text in value for text in
-                            ("Piano hand spans", "Dense overlapping piano notes", "Percussion tracks are omitted")):
+                            ("Piano hand spans", "Dense overlapping piano notes", "Percussion tracks are omitted", "Score simplification omitted")):
                         self.score_warnings.append(value.split("UserWarning:", 1)[1].strip())
                     self.log.configure(state="normal")
                     self.log.insert("end", value)

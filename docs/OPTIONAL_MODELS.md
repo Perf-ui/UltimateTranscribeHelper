@@ -43,3 +43,20 @@ spelling, durations and ties may need editing. Percussion tracks are omitted
 from MusicXML but remain in the MIDI. Time-signature changes are not yet supported. Dense piano passages may need
 extra ties, and passages that exceed a hand span or five held notes are flagged
 for review. Score export does not alter the MIDI.
+
+
+### Optional piano hand model
+
+**Experimental: neural piano hand assignment** uses the MIT-licensed
+[Piano SVSep](https://github.com/CPJKU/piano_svsep) research model as a source
+of staff suggestions. On first use, Omnizart installs dependencies into a
+separate environment and downloads a SHA-256-verified model checkpoint.
+It requires internet for setup, runs on CPU, and can take time on long pieces.
+The model's suggestions are balanced with hand-span checks; they are not a
+guarantee of playable music. Compare the result with the default assignment.
+This option requires a single piano instrument track.
+
+**Simplify score when needed** is separate and off by default. For non-piano
+parts exceeding four overlapping voices it may omit quieter conflicting notes
+from the MusicXML score, with a warning containing the number omitted. It
+never modifies the original MIDI.

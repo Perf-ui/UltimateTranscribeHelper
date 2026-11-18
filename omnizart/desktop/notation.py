@@ -106,7 +106,31 @@ def _voices(notes):
 
 
 
-def _assign_piano_hands(entries, measure_length=16):
+
+def _simplify_to_voices(notes, limit=4):
+    """Keep louder simultaneous chords first, dropping only conflicting groups.
+
+    This acts solely on the score draft. It groups notes with the same start
+    and end as one chord; a discarded chord is reported to the caller.
+    """
+    chords = defaultdict(list)
+    for start, end, pitch, velocity in notes:
+        chords[(start, end)].append((start, end, pitch, velocity))
+    active, kept, dropped = [], set(), set()
+    for (start, end), members in sorted(chords.items(), key=lambda item: (item[0][0], -max(n[3] for n in item[1]), item[0][1])):
+        active = [group for group in active if group[1] > start]
+        group = (start, end)
+        active.append(group)
+        kept.add(group)
+        if len(active) > limit:
+            loser = min(active, key=lambda key: (sum(n[3] for n in chords[key]), -(key[1] - key[0]), -key[0]))
+            active.remove(loser)
+            kept.remove(loser)
+            dropped.add(loser)
+    output = [note for key in sorted(kept) for note in chords[key]]
+    return output, sum(len(chords[key]) for key in dropped)
+
+def _assign_piano_hands(entries, measure_length=16, preferences=None):
     """Partition each attack using notes still held in both hands.
 
     A held note stays on its original staff. The cost prefers compact hands,
@@ -114,15 +138,18 @@ def _assign_piano_hands(entries, measure_length=16):
     Some MIDI passages cannot be played by two hands without editing notes.
     """
     attacks = defaultdict(list)
-    for entry in entries:
-        attacks[entry[0]].append(entry)
+    if preferences is not None and len(preferences) != len(entries):
+        raise ValueError('Piano staff predictions do not match the input notes.')
+    for index, entry in enumerate(entries):
+        attacks[entry[0]].append((entry, preferences[index] if preferences is not None else None))
     assigned = {1: [], 2: []}
     active = {1: [], 2: []}
     difficult_measures = set()
-    for onset, incoming in sorted(attacks.items()):
+    for onset, attack in sorted(attacks.items()):
+        attack.sort(key=lambda item: item[0][2])
+        incoming = [item[0] for item in attack]
         for staff in active:
             active[staff] = [note for note in active[staff] if note[1] > onset]
-        incoming.sort(key=lambda note: note[2])
         best = None
         for cut in range(len(incoming) + 1):
             left = active[2] + incoming[:cut]
@@ -137,7 +164,9 @@ def _assign_piano_hands(entries, measure_length=16):
             fingers = sum(max(0, len(set(pitches)) - 5) ** 2 for pitches in (left_pitches, right_pitches))
             crossing = max(0, max(left_pitches) - min(right_pitches)) if left_pitches and right_pitches else 0
             misplaced = sum(max(0, n[2] - 60) for n in incoming[:cut]) + sum(max(0, 60 - n[2]) for n in incoming[cut:])
-            cost = 10 * excess + 20 * fingers + 3 * crossing + left_span + right_span + .1 * misplaced
+            disagreement = sum(preference is not None and preference != (2 if index < cut else 1)
+                               for index, (_, preference) in enumerate(attack))
+            cost = 10 * excess + 20 * fingers + 3 * crossing + left_span + right_span + .1 * misplaced + 4 * disagreement
             if best is None or cost < best[0]:
                 best = (cost, cut, left_span, right_span, len(set(left_pitches)), len(set(right_pitches)))
         _, cut, left_span, right_span, left_count, right_count = best
@@ -304,7 +333,7 @@ def _write_rests(measure, start, end, measure_length, voice, staff):
         if staff is not None:
             _element(note, 'staff', staff)
 
-def export_score(source, destination, tempo=None, piano=True):
+def export_score(source, destination, tempo=None, piano=True, simplify=False, neural_staff=False):
     """Write a 16th-grid MusicXML draft, with independent voices and stable clefs."""
     destination = Path(destination)
     if destination.exists():
@@ -336,7 +365,18 @@ def export_score(source, destination, tempo=None, piano=True):
             onset = max(0, round(start * bpm / 60 * 4))
             offset = max(onset + 1, round(end * bpm / 60 * 4))
             quantized.append((onset, offset, pitch, velocity))
-        staff_notes = _assign_piano_hands(quantized, length) if is_piano else {1: quantized}
+        if simplify and not is_piano and len(_voices(quantized)) > 4:
+            quantized, dropped = _simplify_to_voices(quantized)
+            if dropped:
+                warnings.warn(f'Score simplification omitted {dropped} note(s) from instrument {number}; the original MIDI is unchanged.', UserWarning)
+        if neural_staff and not is_piano:
+            raise ValueError('Neural piano staff assignment requires one piano instrument track.')
+        preferences = None
+        if neural_staff:
+            from omnizart.desktop.svsep import predict_staff
+            quantized.sort()
+            preferences = predict_staff(quantized, length, denominator)
+        staff_notes = _assign_piano_hands(quantized, length, preferences) if is_piano else {1: quantized}
         score_part = _element(parts, 'score-part', id=f'P{number}')
         _element(score_part, 'part-name', names.get(key[0]) or ('Piano' if is_piano else f'Instrument {number}'))
         inst = _element(score_part, 'score-instrument', id=f'I{number}')
@@ -349,7 +389,7 @@ def export_score(source, destination, tempo=None, piano=True):
         part = _element(score, 'part', id=f'P{number}')
         lanes = _piano_voices(staff_notes) if is_piano else {staff: _voices(entries) for staff, entries in staff_notes.items()}
         if any(len(voices) > 4 for voices in lanes.values()):
-            raise ValueError('This instrument requires more than four simultaneous voices; simplify the MIDI before score export.')
+            raise ValueError('This instrument requires more than four simultaneous voices. Enable Simplify score when needed and try again; the MIDI will be preserved.')
         last = max(end for entries in staff_notes.values() for _, end, _, _ in entries)
         count = (last + length - 1) // length
         for measure_no in range(count):

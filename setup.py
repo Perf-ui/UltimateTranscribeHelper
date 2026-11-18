@@ -114,6 +114,13 @@ packages = \
  'omnizart.constants',
  'omnizart.constants.schema',
  'omnizart.drum',
+ 'omnizart.desktop',
+ 'omnizart.vendor',
+ 'omnizart.vendor.piano_svsep',
+ 'omnizart.vendor.piano_svsep.piano_svsep',
+ 'omnizart.vendor.piano_svsep.piano_svsep.data',
+ 'omnizart.vendor.piano_svsep.piano_svsep.models',
+ 'omnizart.vendor.piano_svsep.piano_svsep.utils',
  'omnizart.feature',
  'omnizart.models',
  'omnizart.music',
@@ -123,6 +130,7 @@ packages = \
 
 package_data = \
 {'': ['*'],
+ 'omnizart.vendor.piano_svsep': ['LICENSE', 'README.md'],
  'omnizart': ['checkpoints/beat/beat_blstm/*',
               'checkpoints/beat/beat_blstm/variables/*',
               'checkpoints/chord/chord_v1/configurations.yaml',

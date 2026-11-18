@@ -38,6 +38,19 @@ class OptionalModelsTest(unittest.TestCase):
             self.assertIn("transformers==4.43.4", run.call_args_list[1].args[0])
             self.assertTrue(optional_models.ready("YourMT3"))
 
+    def test_neural_piano_ready_requires_verified_checkpoint(self):
+        import hashlib
+        with tempfile.TemporaryDirectory() as directory, patch.object(optional_models, 'environment', return_value=Path(directory)):
+            python = optional_models.python_path('Piano SVSep')
+            python.parent.mkdir(parents=True)
+            python.touch()
+            (Path(directory) / '.ready').write_text('1', encoding='utf-8')
+            checkpoint = Path(directory) / 'model.ckpt'
+            checkpoint.write_bytes(b'invalid')
+            self.assertFalse(optional_models.ready('Piano SVSep'))
+            with patch.object(optional_models, 'SVSEP_SHA256', hashlib.sha256(b'invalid').hexdigest()):
+                self.assertTrue(optional_models.ready('Piano SVSep'))
+
     def test_yourmt3_uses_isolated_interpreter(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(yourmt3, "ready", return_value=True), patch.object(yourmt3, "python_path", return_value=Path("isolated-python")), patch.object(yourmt3.subprocess, "run") as run:
             target = Path(directory) / "out.mid"

@@ -30,6 +30,8 @@ music = LazyLoader("music", globals(), "omnizart.music")
 @click.option("--compare-midi", type=click.Path(exists=True, dir_okay=False), default=None, help="Compare note onsets with an existing MIDI.")
 @click.option("--score-grid", type=click.Choice(["off", "8", "16", "32"]), default="off", help="Optional score-only rhythm grid.")
 @click.option("--score", is_flag=True, help="Write a notation draft as MusicXML without MuseScore.")
+@click.option("--neural-staff", is_flag=True, help="Use experimental Piano SVSep staff suggestions for one piano track.")
+@click.option("--simplify-score", is_flag=True, help="Omit conflicting notes from the score if necessary; preserve the MIDI.")
 @click.option("--score-tempo", type=click.FloatRange(30, 300), default=None, help="Score tempo in BPM; omit to estimate it.")
 @click.option("--musescore", type=click.Path(exists=True, dir_okay=False), default=None, help="MuseScore executable for optional MusicXML export.")
 @click.option("--lint-notes", is_flag=True, help="Save a non-destructive transcription review report.")
@@ -38,7 +40,7 @@ music = LazyLoader("music", globals(), "omnizart.music")
 @click.option("--remove-short-ms", type=click.FloatRange(0, 200), default=0, help="Also remove notes shorter than this duration; 0 disables.")
 def transcribe(input_audio, model_path, output, onset_th, duration_th, instrument_th, frame_th, minimum_note_ms,
                remove_vocals, piano_only, save_accompaniment, include_vocals, separator, uvr_device, gpu_index,
-               compare_midi, score_grid, score, score_tempo, musescore, lint_notes, smooth_notes, smooth_gap_ms, remove_short_ms):
+               compare_midi, score_grid, score, neural_staff, simplify_score, score_tempo, musescore, lint_notes, smooth_notes, smooth_gap_ms, remove_short_ms):
     """Transcribe a single audio and output as a MIDI file.
 
     This will output a MIDI file with the same name as the given audio, except the
@@ -142,7 +144,7 @@ def transcribe(input_audio, model_path, output, onset_th, duration_th, instrumen
         from omnizart.desktop.notation import export_score
         score_path = target.with_name(target.stem + ".musicxml")
         try:
-            bpm = export_score(target, score_path, tempo=score_tempo,
+            bpm = export_score(target, score_path, tempo=score_tempo, simplify=simplify_score, neural_staff=neural_staff,
                                piano=(piano_only or model_path in
                                       ("Piano", "PianoV2", "Transkun (piano)",
                                        "Transkun V2 Aug", "Pedal Piano")))

@@ -54,6 +54,27 @@ class NativeScoreTests(unittest.TestCase):
             self.assertEqual([n.findtext('pitch/step') for n in root.findall('.//note') if n.find('pitch') is not None], ['C'])
             self.assertEqual(path.read_bytes(), original)
 
+    def test_simplify_score_avoids_voice_limit_without_changing_midi(self):
+        with TemporaryDirectory() as directory:
+            path, output = Path(directory) / 'in.mid', Path(directory) / 'out.musicxml'
+            midi = mido.MidiFile(ticks_per_beat=480)
+            track = mido.MidiTrack()
+            for pitch in range(60, 65):
+                track.append(mido.Message('note_on', note=pitch, velocity=20 if pitch == 60 else 100))
+            for pitch in range(60, 65):
+                track.append(mido.Message('note_off', note=pitch, time=120))
+            midi.tracks.append(track)
+            midi.save(path)
+            original = path.read_bytes()
+            with self.assertRaisesRegex(ValueError, 'Enable Simplify'):
+                export_score(path, output, tempo=120, piano=False)
+            self.assertFalse(output.exists())
+            with self.assertWarnsRegex(UserWarning, 'omitted 1 note'):
+                export_score(path, output, tempo=120, piano=False, simplify=True)
+            root = ET.parse(output).getroot()
+            self.assertEqual(len({n.findtext('voice') for n in root.findall('.//note') if n.find('pitch') is not None}), 4)
+            self.assertEqual(path.read_bytes(), original)
+
     def test_percussion_only_reports_why_there_is_no_score(self):
         with TemporaryDirectory() as directory:
             path, result = Path(directory) / 'in.mid', Path(directory) / 'out.musicxml'
@@ -84,6 +105,18 @@ class NativeScoreTests(unittest.TestCase):
             voices = _piano_voices(notes)
         upper = [pitch[0] for lane in voices[1] for _, _, chord in lane for pitch in chord]
         self.assertEqual(upper, [90])
+
+    def test_neural_staff_suggestions_preserve_notes_and_respect_reach(self):
+        entry = (0, 4, 60, 80)
+        self.assertEqual(_assign_piano_hands([entry], preferences=[1])[1], [entry])
+        self.assertEqual(_assign_piano_hands([entry], preferences=[2])[2], [entry])
+        with self.assertRaisesRegex(ValueError, 'do not match'):
+            _assign_piano_hands([entry], preferences=[])
+        entries = [(0, 4, pitch, 80) for pitch in (48, 60, 72, 84)]
+        hands = _assign_piano_hands(entries, preferences=[1, 1, 1, 1])
+        self.assertEqual(sorted(hands[1] + hands[2]), sorted(entries))
+        for hand in hands.values():
+            self.assertLessEqual(max(n[2] for n in hand) - min(n[2] for n in hand), 12)
 
     def test_hand_assignment_splits_a_wide_chord_between_hands(self):
         entries = [(0, 4, pitch, 80) for pitch in (48, 60, 72, 84)]
