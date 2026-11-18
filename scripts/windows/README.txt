@@ -47,15 +47,12 @@ earlier transcription of the same audio and writes `_comparison.txt`.
 Align both recordings at the same start; matching ignores track and duration.
 Differences are not proof that either model is right. Drum notes are excluded.
 
-Optional "Export MusicXML using MuseScore" uses a separately installed
-MuseScore executable to create a draft .musicxml next to the MIDI. Select
-MuseScore4.exe with "Choose MuseScore...". The MIDI remains unchanged.
-MuseScore converts the MIDI using its own import settings; review notes,
-rhythm, pedal and dynamics. Pedal and dynamics are not guaranteed to survive
-conversion, and this option does not infer markings missing from the MIDI.
-The optional score rhythm grid snaps note starts and ends before MuseScore
-imports them. It can simplify notation but can change expressive timing and
-fast notes. It is off by default and never changes the original MIDI.
+Optional "Create formatted MusicXML score" creates an editable score from
+MIDI without requiring MuseScore. Tempo is estimated automatically or can be
+entered manually. Choose MuseScore only if you also want a PDF. Score timing,
+voices and spelling are estimates; review the resulting notation. The original
+MIDI is not changed.
+
 
 Optional "Create note review report" writes a separate `_review.txt` with
 timestamps for very short, overlapping and stuck notes, plus possible vocal

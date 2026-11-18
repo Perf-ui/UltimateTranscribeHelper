@@ -1,0 +1,401 @@
+"""Create an editable MusicXML draft directly from MIDI, without an engraver.
+
+Rhythm is quantized for notation only. Independent overlapping note groups are
+allocated to separate voices so that a held note need not be tied at every
+attack in another voice. The original MIDI is never modified.
+"""
+from collections import defaultdict, deque
+import math
+import warnings
+from pathlib import Path
+from xml.etree import ElementTree as ET
+
+import mido
+
+
+def _element(parent, name, value=None, **attributes):
+    child = ET.SubElement(parent, name, **attributes)
+    if value is not None:
+        child.text = str(value)
+    return child
+
+
+def _read_midi(path):
+    midi = mido.MidiFile(str(path))
+    if midi.type == 2 or midi.ticks_per_beat <= 0:
+        raise ValueError("This MIDI timing format cannot be converted to a score.")
+    events = []
+    for index, track in enumerate(midi.tracks):
+        tick = 0
+        for order, message in enumerate(track):
+            tick += message.time
+            events.append((tick, index, order, message))
+    events.sort(key=lambda x: x[:3])
+    time, tick, tempo, initial_tempo = 0.0, 0, 500000, None
+    signature = None
+    programs, names = defaultdict(int), {}
+    active, notes = defaultdict(deque), defaultdict(list)
+    for position, track, _, message in events:
+        time += (position - tick) * tempo / (midi.ticks_per_beat * 1000000)
+        tick = position
+        if message.type == 'set_tempo':
+            tempo = message.tempo
+            if initial_tempo is None:
+                initial_tempo = tempo
+        elif message.type == 'time_signature':
+            current = (message.numerator, message.denominator)
+            if signature is not None and signature != current:
+                raise ValueError('Scores with time signature changes are not yet supported.')
+            signature = current
+        elif message.type == 'track_name':
+            names[track] = message.name
+        elif message.type == 'program_change':
+            programs[(track, message.channel)] = message.program
+        elif message.type == 'note_on' and message.velocity:
+            active[(track, message.channel, message.note)].append((time, message.velocity))
+        elif message.type in ('note_off', 'note_on'):
+            key = (track, message.channel, message.note)
+            if active[key]:
+                start, velocity = active[key].popleft()
+                if time > start:
+                    notes[(track, message.channel)].append((start, time, message.note, velocity))
+    if any(active.values()):
+        raise ValueError('The MIDI contains notes without a matching note-off event.')
+    if not notes:
+        raise ValueError('The MIDI contains no notes to notate.')
+    return notes, programs, names, signature or (4, 4), 60000000 / (initial_tempo or 500000)
+
+
+def _estimate_tempo(notes, fallback):
+    starts = sorted(note[0] for group in notes.values() for note in group)
+    clusters = []
+    for start in starts:
+        if not clusters or start - clusters[-1] > .06:
+            clusters.append(start)
+    if len(clusters) < 12:
+        return fallback
+    best = (0, fallback)
+    for bpm in range(70, 201):
+        # Eighth-note periodicity distinguishes the beat from a generic
+        # sixteenth grid. A free phase allows an initial pickup or silence.
+        values = [2 * math.pi * t * bpm / 30 for t in clusters]
+        coherence = math.hypot(sum(math.cos(v) for v in values),
+                               sum(math.sin(v) for v in values)) / len(values)
+        if (coherence > best[0] + .005 or
+                (abs(coherence - best[0]) <= .005 and abs(bpm - fallback) < abs(best[1] - fallback))):
+            best = coherence, bpm
+    return best[1] if best[0] >= .25 else fallback
+
+
+def _voices(notes):
+    """Group equal-onset/equal-end notes as chords and color overlaps into voices."""
+    chords = defaultdict(list)
+    for start, end, pitch, velocity in notes:
+        chords[(start, end)].append((pitch, velocity))
+    lanes, ends = [], []
+    for (start, end), pitches in sorted(chords.items(), key=lambda x: (x[0][0], -x[0][1])):
+        available = [i for i, last in enumerate(ends) if last <= start]
+        index = max(available, key=lambda i: ends[i]) if available else len(lanes)
+        if index == len(lanes):
+            lanes.append([])
+            ends.append(0)
+        lanes[index].append((start, end, sorted(pitches)))
+        ends[index] = end
+    return lanes
+
+
+
+
+def _assign_piano_hands(entries, measure_length=16):
+    """Partition each attack using notes still held in both hands.
+
+    A held note stays on its original staff. The cost prefers compact hands,
+    ordered pitches and no more than five simultaneously held notes per hand.
+    Some MIDI passages cannot be played by two hands without editing notes.
+    """
+    attacks = defaultdict(list)
+    for entry in entries:
+        attacks[entry[0]].append(entry)
+    assigned = {1: [], 2: []}
+    active = {1: [], 2: []}
+    difficult_measures = set()
+    for onset, incoming in sorted(attacks.items()):
+        for staff in active:
+            active[staff] = [note for note in active[staff] if note[1] > onset]
+        incoming.sort(key=lambda note: note[2])
+        best = None
+        for cut in range(len(incoming) + 1):
+            left = active[2] + incoming[:cut]
+            right = active[1] + incoming[cut:]
+            left_pitches = [note[2] for note in left]
+            right_pitches = [note[2] for note in right]
+            left_span = max(left_pitches) - min(left_pitches) if left_pitches else 0
+            right_span = max(right_pitches) - min(right_pitches) if right_pitches else 0
+            # A large interval or excess simultaneous notes is expensive;
+            # prefer the lower hand for low pitches when costs otherwise tie.
+            excess = sum(max(0, span - 12) ** 2 for span in (left_span, right_span))
+            fingers = sum(max(0, len(set(pitches)) - 5) ** 2 for pitches in (left_pitches, right_pitches))
+            crossing = max(0, max(left_pitches) - min(right_pitches)) if left_pitches and right_pitches else 0
+            misplaced = sum(max(0, n[2] - 60) for n in incoming[:cut]) + sum(max(0, 60 - n[2]) for n in incoming[cut:])
+            cost = 10 * excess + 20 * fingers + 3 * crossing + left_span + right_span + .1 * misplaced
+            if best is None or cost < best[0]:
+                best = (cost, cut, left_span, right_span, len(set(left_pitches)), len(set(right_pitches)))
+        _, cut, left_span, right_span, left_count, right_count = best
+        if max(left_span, right_span) > 12 or max(left_count, right_count) > 5:
+            difficult_measures.add(onset // measure_length + 1)
+        for staff, group in ((2, incoming[:cut]), (1, incoming[cut:])):
+            assigned[staff].extend(group)
+            active[staff].extend(group)
+    if difficult_measures:
+        measures = sorted(difficult_measures)
+        shown = ", ".join(str(number) for number in measures[:12])
+        if len(measures) > 12:
+            shown += ", ?"
+        warnings.warn(f'Piano hand spans or held-note counts need review in measures {shown} ({len(measures)} measures total).', UserWarning)
+    return assigned
+
+
+def _sliced_piano_voices(staff_notes):
+    """Represent dense overlaps as tied chords when four voices are insufficient."""
+    result = {}
+    for staff, entries in staff_notes.items():
+        boundaries = sorted({time for start, end, _, _ in entries for time in (start, end)})
+        lane = []
+        for left, right in zip(boundaries, boundaries[1:]):
+            pitches = [(pitch, velocity, left > start, right < end)
+                       for start, end, pitch, velocity in entries if start <= left and end >= right]
+            if pitches:
+                lane.append((left, right, sorted(pitches)))
+        result[staff] = [lane] if lane else []
+    return result
+
+
+def _dense_piano_voices(staff_notes):
+    """Limit chord slicing to overlap regions that exceed four voices."""
+    output = {1: [], 2: []}
+    sliced = False
+    for staff, entries in staff_notes.items():
+        components, current, last_end = [], [], -1
+        for entry in sorted(entries):
+            if current and entry[0] >= last_end:
+                components.append(current)
+                current = []
+                last_end = -1
+            current.append(entry)
+            last_end = max(last_end, entry[1])
+        if current:
+            components.append(current)
+        for component in components:
+            lanes = _voices(component)
+            if len(lanes) > 4:
+                lanes = _sliced_piano_voices({staff: component})[staff]
+                sliced = True
+            while len(output[staff]) < len(lanes):
+                output[staff].append([])
+            for index, lane in enumerate(lanes):
+                output[staff][index].extend(lane)
+    if sliced:
+        warnings.warn('Dense overlapping piano notes required extra ties; review the score for playability.', UserWarning)
+    return output
+
+
+def _piano_voices(staff_notes):
+    """Keep at most four voices per staff, moving overflow across the grand staff."""
+    groups = []
+    for staff, entries in staff_notes.items():
+        chords = defaultdict(list)
+        for start, end, pitch, velocity in entries:
+            chords[(start, end)].append((pitch, velocity))
+        groups.extend((start, end, staff, sorted(pitches)) for (start, end), pitches in chords.items())
+    groups.sort(key=lambda item: (item[0], -item[1], item[2]))
+    lanes = {1: [], 2: []}
+    ends = {1: [], 2: []}
+    for start, end, preferred, pitches in groups:
+        assigned = False
+        for staff in (preferred, 3 - preferred):
+            available = [i for i, last in enumerate(ends[staff]) if last <= start]
+            if available:
+                index = max(available, key=lambda i: ends[staff][i])
+            elif len(lanes[staff]) < 4:
+                index = len(lanes[staff])
+                lanes[staff].append([])
+                ends[staff].append(0)
+            else:
+                continue
+            lanes[staff][index].append((start, end, pitches))
+            ends[staff][index] = end
+            assigned = True
+            break
+        if not assigned:
+            return _dense_piano_voices(staff_notes)
+    return lanes
+
+def _duration_pieces(start, end, measure_length):
+    # Sixteenth-note units. Splitting at bar boundaries and using conventional
+    # dotted values avoids tying each chord tone at unrelated voice attacks.
+    values = ((16, 'whole', False), (12, 'half', True), (8, 'half', False),
+              (6, 'quarter', True), (4, 'quarter', False), (3, 'eighth', True),
+              (2, 'eighth', False), (1, '16th', False))
+    while start < end:
+        limit = min(end, (start // measure_length + 1) * measure_length)
+        for size, kind, dotted in values:
+            if size <= limit - start and (size < 4 or start % 4 == 0):
+                yield start, start + size, kind, dotted
+                start += size
+                break
+
+
+def _pitch(note, pitch):
+    # Prefer common sharp spellings; users can respell enharmonics in an editor.
+    names = [('C', 0), ('C', 1), ('D', 0), ('D', 1), ('E', 0), ('F', 0),
+             ('F', 1), ('G', 0), ('G', 1), ('A', 0), ('A', 1), ('B', 0)]
+    step, alter = names[pitch % 12]
+    p = _element(note, 'pitch')
+    _element(p, 'step', step)
+    if alter:
+        _element(p, 'alter', alter)
+    _element(p, 'octave', pitch // 12 - 1)
+
+
+def _write_note(measure, pitches, voice, staff, start, end, kind, dotted, tied_before, tied_after):
+    for index, pitch_info in enumerate(pitches):
+        pitch, velocity = pitch_info[:2]
+        note_tied_before = tied_before or (len(pitch_info) > 2 and pitch_info[2])
+        note_tied_after = tied_after or (len(pitch_info) > 3 and pitch_info[3])
+        note = _element(measure, 'note', dynamics=str(round(velocity * 100 / 90, 2)))
+        if index:
+            _element(note, 'chord')
+        _pitch(note, pitch)
+        _element(note, 'duration', end - start)
+        if note_tied_before:
+            _element(note, 'tie', type='stop')
+        if note_tied_after:
+            _element(note, 'tie', type='start')
+        _element(note, 'voice', voice)
+        _element(note, 'type', kind)
+        if dotted:
+            _element(note, 'dot')
+        if staff is not None:
+            _element(note, 'staff', staff)
+        if note_tied_before or note_tied_after:
+            notation = _element(note, 'notations')
+            if note_tied_before:
+                _element(notation, 'tied', type='stop')
+            if note_tied_after:
+                _element(notation, 'tied', type='start')
+
+
+
+def _write_rests(measure, start, end, measure_length, voice, staff):
+    for left, right, kind, dotted in _duration_pieces(start, end, measure_length):
+        note = _element(measure, 'note')
+        _element(note, 'rest')
+        _element(note, 'duration', right - left)
+        _element(note, 'voice', voice)
+        _element(note, 'type', kind)
+        if dotted:
+            _element(note, 'dot')
+        if staff is not None:
+            _element(note, 'staff', staff)
+
+def export_score(source, destination, tempo=None, piano=True):
+    """Write a 16th-grid MusicXML draft, with independent voices and stable clefs."""
+    destination = Path(destination)
+    if destination.exists():
+        raise FileExistsError(f'Refusing to overwrite existing score: {destination}')
+    notes, programs, names, signature, fallback = _read_midi(source)
+    percussion = [key for key in notes if key[1] == 9]
+    if percussion:
+        notes = {key: value for key, value in notes.items() if key[1] != 9}
+        if not notes:
+            raise ValueError('The MIDI contains only percussion; pitched score export requires at least one pitched instrument.')
+        warnings.warn('Percussion tracks are omitted from the MusicXML score; the original MIDI keeps all tracks.', UserWarning)
+    bpm = float(tempo) if tempo is not None else _estimate_tempo(notes, fallback)
+    if not 30 <= bpm <= 300:
+        raise ValueError('Score tempo must be between 30 and 300 BPM.')
+    numerator, denominator = signature
+    length = numerator * 16 / denominator
+    if length != int(length) or not 1 <= length <= 64:
+        raise ValueError('This time signature is not supported by the score grid.')
+    length = int(length)
+    score = ET.Element('score-partwise', version='4.0')
+    work = _element(score, 'work')
+    _element(work, 'work-title', Path(source).stem)
+    parts = _element(score, 'part-list')
+    groups = []
+    for number, (key, entries) in enumerate(sorted(notes.items()), 1):
+        is_piano = piano and len(notes) == 1
+        quantized = []
+        for start, end, pitch, velocity in entries:
+            onset = max(0, round(start * bpm / 60 * 4))
+            offset = max(onset + 1, round(end * bpm / 60 * 4))
+            quantized.append((onset, offset, pitch, velocity))
+        staff_notes = _assign_piano_hands(quantized, length) if is_piano else {1: quantized}
+        score_part = _element(parts, 'score-part', id=f'P{number}')
+        _element(score_part, 'part-name', names.get(key[0]) or ('Piano' if is_piano else f'Instrument {number}'))
+        inst = _element(score_part, 'score-instrument', id=f'I{number}')
+        _element(inst, 'instrument-name', names.get(key[0]) or ('Piano' if is_piano else f'Instrument {number}'))
+        midi_inst = _element(score_part, 'midi-instrument', id=f'I{number}')
+        _element(midi_inst, 'midi-channel', key[1] + 1)
+        _element(midi_inst, 'midi-program', programs[key] + 1)
+        groups.append((number, staff_notes, is_piano))
+    for number, staff_notes, is_piano in groups:
+        part = _element(score, 'part', id=f'P{number}')
+        lanes = _piano_voices(staff_notes) if is_piano else {staff: _voices(entries) for staff, entries in staff_notes.items()}
+        if any(len(voices) > 4 for voices in lanes.values()):
+            raise ValueError('This instrument requires more than four simultaneous voices; simplify the MIDI before score export.')
+        last = max(end for entries in staff_notes.values() for _, end, _, _ in entries)
+        count = (last + length - 1) // length
+        for measure_no in range(count):
+            left, right = measure_no * length, (measure_no + 1) * length
+            measure = _element(part, 'measure', number=str(measure_no + 1))
+            if measure_no == 0:
+                attrs = _element(measure, 'attributes')
+                _element(attrs, 'divisions', 4)
+                time = _element(attrs, 'time')
+                _element(time, 'beats', numerator)
+                _element(time, 'beat-type', denominator)
+                if is_piano:
+                    _element(attrs, 'staves', 2)
+                for staff in staff_notes:
+                    clef = _element(attrs, 'clef', **({'number': str(staff)} if is_piano else {}))
+                    _element(clef, 'sign', 'F' if staff == 2 else 'G')
+                    _element(clef, 'line', 4 if staff == 2 else 2)
+                direction = _element(measure, 'direction', placement='above')
+                dt = _element(direction, 'direction-type')
+                metro = _element(dt, 'metronome')
+                _element(metro, 'beat-unit', 'quarter')
+                _element(metro, 'per-minute', f'{bpm:g}')
+                _element(direction, 'sound', tempo=f'{bpm:g}')
+            streams = [(staff, idx, lane) for staff, ls in lanes.items() for idx, lane in enumerate(ls)
+                       if any(start < right and end > left for start, end, _ in lane)]
+            for staff in staff_notes:
+                if not any(stream[0] == staff for stream in streams):
+                    streams.append((staff, 0, []))
+            streams.sort(key=lambda item: (item[0], item[1]))
+            for stream_idx, (staff, lane_idx, lane) in enumerate(streams):
+                if stream_idx:
+                    backup = _element(measure, 'backup')
+                    _element(backup, 'duration', length)
+                voice = str((staff - 1) * 100 + lane_idx + 1)
+                cursor = left
+                for start, end, pitches in lane:
+                    if start >= right or end <= left:
+                        continue
+                    segment_start, segment_end = max(start, left), min(end, right)
+                    if segment_start > cursor:
+                        _write_rests(measure, cursor, segment_start, length, voice,
+                                     staff if is_piano else None)
+                    for a, b, kind, dotted in _duration_pieces(segment_start, segment_end, length):
+                        _write_note(measure, pitches, voice, staff if is_piano else None, a, b, kind, dotted,
+                                    a > start, b < end)
+                    cursor = segment_end
+                if cursor < right:
+                    _write_rests(measure, cursor, right, length, voice,
+                                 staff if is_piano else None)
+            from omnizart.desktop.score_export import _hide_covered_rests
+            _hide_covered_rests(measure)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open('xb') as output:
+        ET.ElementTree(score).write(output, encoding='utf-8', xml_declaration=True)
+    return bpm

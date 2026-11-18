@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 from types import SimpleNamespace
 import mido
-from omnizart.desktop.score_export import export_musicxml, quantize_score_input
+from omnizart.desktop.score_export import export_musicxml, format_musicxml, quantize_score_input, _hide_covered_rests
 
 
 class ScoreTests(unittest.TestCase):
@@ -49,6 +49,36 @@ class ScoreTests(unittest.TestCase):
             controls = [(time, msg.value) for time, msg in events if msg.type == 'control_change']
             self.assertEqual(controls, [(40, 127), (133, 0)])
             self.assertEqual(next(msg.tempo for _, msg in events if msg.type == 'set_tempo'), 750000)
+
+    def test_piano_clef_fix_preserves_existing_voice_and_staff_assignments(self):
+        import xml.etree.ElementTree as ET
+        with TemporaryDirectory() as folder:
+            source, output = Path(folder) / 'in.xml', Path(folder) / 'out.xml'
+            source.write_text("""<score-partwise><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><staves>2</staves><clef number="1"><sign>G</sign><line>2</line></clef><clef number="2"><sign>G</sign><line>2</line></clef></attributes><note><pitch><step>C</step><octave>4</octave></pitch><voice>5</voice><stem>up</stem><staff>2</staff></note><note><chord/><pitch><step>G</step><octave>4</octave></pitch><voice>5</voice><staff>2</staff></note></measure></part></score-partwise>""", encoding='utf-8')
+            format_musicxml(source, output, piano_grand_staff=True)
+            root = ET.parse(output).getroot()
+            self.assertEqual([note.findtext('staff') for note in root.findall('.//note')], ['2', '2'])
+            self.assertIsNone(root.find('.//note/stem'))
+            self.assertEqual(root.findtext('.//clef[@number="2"]/sign'), 'F')
+            self.assertEqual(root.findtext('.//clef[@number="2"]/line'), '4')
+
+    def test_rests_are_hidden_only_when_other_voice_covers_them(self):
+        import xml.etree.ElementTree as ET
+        measure = ET.fromstring("""<measure><note><pitch/><duration>8</duration><voice>1</voice><staff>1</staff></note><backup><duration>8</duration></backup><note><rest/><duration>4</duration><voice>2</voice><staff>1</staff></note><note><rest/><duration>8</duration><voice>2</voice><staff>1</staff></note></measure>""")
+        _hide_covered_rests(measure)
+        rests = [n for n in measure.findall('note') if n.find('rest') is not None]
+        self.assertEqual(rests[0].get('print-object'), 'no')
+        self.assertIsNone(rests[1].get('print-object'))
+
+    def test_later_piano_clef_changes_are_removed(self):
+        import xml.etree.ElementTree as ET
+        with TemporaryDirectory() as folder:
+            source, output = Path(folder) / 'in.xml', Path(folder) / 'out.xml'
+            source.write_text("""<score-partwise><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure><attributes><staves>2</staves><clef number="1"><sign>G</sign><line>2</line></clef><clef number="2"><sign>F</sign><line>4</line></clef></attributes></measure><measure><attributes><clef number="2"><sign>G</sign><line>2</line></clef><key><fifths>2</fifths></key></attributes></measure></part></score-partwise>""", encoding='utf-8')
+            format_musicxml(source, output)
+            root = ET.parse(output).getroot()
+            self.assertEqual(len(root.findall('.//clef')), 2)
+            self.assertEqual(root.findtext('.//key/fifths'), '2')
 
     def test_invalid_output_is_rejected(self):
         with TemporaryDirectory() as folder:

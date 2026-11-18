@@ -8,6 +8,7 @@ import queue
 import subprocess
 import sys
 import threading
+import traceback
 import webbrowser
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -262,7 +263,9 @@ class Application(ttk.Frame):
         self.compare_enabled = tk.BooleanVar(value=False)
         self.compare_path = tk.StringVar()
         self.score_grid = tk.StringVar(value="Off")
+        self.score_tempo = tk.StringVar(value="Auto")
         self.musescore_export = tk.BooleanVar(value=False)
+        self.pdf_export = tk.BooleanVar(value=False)
         self.musescore_path = tk.StringVar()
         self.lint_notes = tk.BooleanVar(value=False)
         self.smooth_notes = tk.BooleanVar(value=False)
@@ -285,6 +288,8 @@ class Application(ttk.Frame):
         self.model_thresholds = {}
         self.messages = queue.Queue()
         self.process = None
+        self.optional_installing = False
+        self.score_warnings = []
         self.running = False
         self.active_mode = None
         self.output_folder = None
@@ -413,11 +418,15 @@ class Application(ttk.Frame):
         self.lint_option.grid(row=16, column=0, sticky="w", pady=(10, 0))
         Tooltip(self.lint_option, "Writes a separate text report of possible short or overlapping notes. Suggestions can be intentional; MIDI is unchanged.")
 
-        self.score_option = ttk.Checkbutton(card, text="Format score and export MusicXML + PDF", variable=self.musescore_export, style="App.TCheckbutton")
+        self.score_option = ttk.Checkbutton(card, text="Create formatted MusicXML score", variable=self.musescore_export, style="App.TCheckbutton")
         self.score_option.grid(row=17, column=0, sticky="w", pady=(10, 0))
-        self.score_button = ttk.Button(card, text="Choose MuseScore...", style="Link.TButton", command=self.choose_musescore)
-        self.score_button.grid(row=17, column=1, sticky="w", padx=(14, 0), pady=(10, 0))
-        Tooltip(self.score_option, "Converts the MIDI, applies standard A4 page spacing and piano grand-staff layout when appropriate, then engraves a PDF with MuseScore. The original MIDI is kept; review notation and timing.")
+        score_pdf = ttk.Frame(card, style="Card.TFrame")
+        score_pdf.grid(row=17, column=1, sticky="w", padx=(14, 0), pady=(10, 0))
+        self.pdf_option = ttk.Checkbutton(score_pdf, text="PDF", variable=self.pdf_export, style="App.TCheckbutton")
+        self.pdf_option.pack(side="left")
+        self.score_button = ttk.Button(score_pdf, text="Choose MuseScore...", style="Link.TButton", command=self.choose_musescore)
+        self.score_button.pack(side="left", padx=(8, 0))
+        Tooltip(self.score_option, "Creates an editable MusicXML score without changing the MIDI. Percussion is omitted from the score. Tempo and notation are estimates; review the result.")
         Tooltip(self.score_button, "Select MuseScore4.exe from your MuseScore installation.")
 
         self.compare_option = ttk.Checkbutton(card, text="Compare with another MIDI", variable=self.compare_enabled, style="App.TCheckbutton")
@@ -426,11 +435,11 @@ class Application(ttk.Frame):
         self.compare_button.grid(row=18, column=1, sticky="w", padx=(14, 0), pady=(10, 0))
         Tooltip(self.compare_option, "Lists pitch and onset differences from another MIDI made from the same audio. Does not prove which is correct.")
 
-        self.score_grid_label = ttk.Label(card, text="Score rhythm grid", style="CardLabel.TLabel")
+        self.score_grid_label = ttk.Label(card, text="Score tempo (BPM or Auto)", style="CardLabel.TLabel")
         self.score_grid_label.grid(row=19, column=0, sticky="w", pady=(10, 0))
-        self.score_grid_picker = ttk.Combobox(card, textvariable=self.score_grid, values=["Off", "1/8", "1/16", "1/32"], state="readonly", style="App.TCombobox", width=8)
+        self.score_grid_picker = ttk.Entry(card, textvariable=self.score_tempo, style="App.TEntry", width=8)
         self.score_grid_picker.grid(row=19, column=1, sticky="w", padx=(14, 0), pady=(10, 0))
-        Tooltip(self.score_grid_picker, "Optional score-only quantization: snaps note starts and ends to the selected grid. Off retains the MIDI timing. May change rhythms; original MIDI is untouched.")
+        Tooltip(self.score_grid_picker, "Auto estimates tempo from the notes. Enter a BPM to override it; notation uses a sixteenth-note grid.")
 
         self.settings_card = ttk.Frame(body, style="Card.TFrame", padding=(22, 12))
         self.settings_card.grid(row=2, column=0, sticky="ew", pady=(12, 0))
@@ -552,9 +561,10 @@ class Application(ttk.Frame):
             self.separation_models_button.configure(state="normal")
             self.compare_option.configure(state="normal")
             self.compare_button.configure(state="normal")
-            self.score_grid_picker.configure(state="readonly")
+            self.score_grid_picker.configure(state="normal")
             self.score_option.configure(state="normal")
             self.score_button.configure(state="normal")
+            self.pdf_option.configure(state="normal")
             self.lint_option.configure(state="normal")
             self.smooth_option.configure(state="normal")
             self.short_option.configure(state="normal")
@@ -626,6 +636,7 @@ class Application(ttk.Frame):
             self.score_grid_picker.configure(state="disabled")
             self.score_option.configure(state="disabled")
             self.score_button.configure(state="disabled")
+            self.pdf_option.configure(state="disabled")
             self.lint_option.configure(state="disabled")
             self.smooth_option.configure(state="disabled")
             self.smooth_entry.configure(state="disabled")
@@ -712,13 +723,21 @@ class Application(ttk.Frame):
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text="Models & import", style="Title.TLabel").pack(anchor="w")
         ttk.Label(frame, text="Included: Piano, PianoV2, Pop, Stream, Basic Pitch and Transkun.\n"
-                  "YourMT3 and MuScriptor are optional local installs. Select them in the model drop-down after setup.\n"
+                  "YourMT3 installs automatically; its first model download requires Git and Git LFS on PATH.\n"
+                  "MuScriptor installs automatically; download its model file from Hugging Face into the folder below.\n"
                   "Select Transkun V2 Aug to manage its optional piano checkpoint.",
                   style="Subtitle.TLabel", wraplength=555, justify="left").pack(anchor="w", pady=(12, 16))
-        ttk.Label(frame, text="YourMT3: pip install \"mt3-infer[torch] @ git+https://github.com/openmirlab/mt3-infer.git\".\n"
-                  "MuScriptor: pip install muscriptor, then sign in to Hugging Face and accept the model's CC BY-NC 4.0 terms.\n"
-                  "MuScriptor weights are restricted to non-commercial use. See docs/OPTIONAL_MODELS.md for setup details.",
-                  style="Subtitle.TLabel", wraplength=555, justify="left").pack(anchor="w", pady=(0, 12))
+        ttk.Label(frame, text="MuScriptor small is CC BY-NC 4.0 (non-commercial use only). Accept the terms on its Hugging Face page, then save model.safetensors and config.json in this folder:",
+                  style="Subtitle.TLabel", wraplength=555, justify="left").pack(anchor="w", pady=(0, 8))
+        from omnizart.desktop.muscriptor import model_folder
+        muscriptor_folder = model_folder()
+        ttk.Label(frame, text=str(muscriptor_folder), style="Subtitle.TLabel", wraplength=555).pack(anchor="w")
+        muscriptor_controls = ttk.Frame(frame, style="Root.TFrame")
+        muscriptor_controls.pack(anchor="w", pady=(6, 12))
+        ttk.Button(muscriptor_controls, text="Open MuScriptor folder", style="Secondary.TButton",
+                   command=lambda: os.startfile(str(muscriptor_folder))).pack(side="left", padx=(0, 8))
+        ttk.Button(muscriptor_controls, text="Open Hugging Face model page", style="RootLink.TButton",
+                   command=lambda: webbrowser.open("https://huggingface.co/MuScriptor/muscriptor-small")).pack(side="left")
         ttk.Label(frame, text="Import a complete Omnizart music checkpoint folder containing configurations.yaml, "
                   "saved_model.pb and its variables. The release download supplies weights only; it does not include "
                   "the other files. Transkun and Basic Pitch models use different formats and cannot be imported here.",
@@ -785,8 +804,6 @@ class Application(ttk.Frame):
                    command=lambda: webbrowser.open("https://github.com/spotify/basic-pitch")).pack(anchor="w")
         ttk.Button(frame, text="Open YourMT3 project page ↗", style="RootLink.TButton",
                    command=lambda: webbrowser.open("https://github.com/openmirlab/mt3-infer")).pack(anchor="w")
-        ttk.Button(frame, text="Open MuScriptor model page ↗", style="RootLink.TButton",
-                   command=lambda: webbrowser.open("https://github.com/muscriptor/muscriptor")).pack(anchor="w")
         ttk.Button(frame, text="Open Transkun project page ↗", style="RootLink.TButton",
                    command=lambda: webbrowser.open("https://github.com/Yujia-Yan/Transkun")).pack(anchor="w")
 
@@ -910,6 +927,7 @@ class Application(ttk.Frame):
         if path:
             self.musescore_path.set(path)
             self.musescore_export.set(True)
+            self.pdf_export.set(True)
             try:
                 remember_folders(musescore=path)
             except OSError:
@@ -1038,14 +1056,28 @@ class Application(ttk.Frame):
         selected_model = self.music_model.get()
         imported_path = self.custom_models.get(selected_model, self.custom_model_path if selected_model == CUSTOM_MODEL else None)
         if mode == "music" and selected_model in ("YourMT3", "MuScriptor"):
-            import importlib.util
-            import shutil
-            module = "mt3_infer" if selected_model == "YourMT3" else "muscriptor"
-            executable = "mt3-infer" if selected_model == "YourMT3" else "muscriptor"
-            if importlib.util.find_spec(module) is None and shutil.which(executable) is None:
-                messagebox.showerror("Optional model is not installed",
-                                     f"Set up {selected_model} using docs/OPTIONAL_MODELS.md, then restart Omnizart.")
+            from omnizart.desktop.optional_models import install, ready
+            if not ready(selected_model):
+                if self.optional_installing:
+                    return
+                self.optional_installing = True
+                self.start_button.configure(state="disabled")
+                self.status.set(f"Installing {selected_model} automatically. This may take several minutes...")
+
+                def install_optional():
+                    try:
+                        install(selected_model)
+                        self.messages.put(("optional_install_done", (selected_model, 0, "")))
+                    except Exception as exc:
+                        self.messages.put(("optional_install_done", (selected_model, 1, str(exc))))
+
+                threading.Thread(target=install_optional, daemon=True).start()
                 return
+            if selected_model == "MuScriptor":
+                from omnizart.desktop.muscriptor import model_checkpoint, model_folder
+                if model_checkpoint() is None:
+                    messagebox.showerror("MuScriptor model", f"Download the small model from its Hugging Face page and place exactly one .safetensors file and its config.json here:\n\n{model_folder()}")
+                    return
         if mode == "music" and (selected_model == CUSTOM_MODEL or selected_model in self.custom_models) and (
                 not imported_path or not validate_model_folder(imported_path)):
             messagebox.showerror("Model", "Use Models & import to select a complete Omnizart music checkpoint.")
@@ -1122,8 +1154,17 @@ class Application(ttk.Frame):
         if mode == "music" and self.compare_enabled.get() and not Path(self.compare_path.get()).is_file():
             messagebox.showerror("MIDI comparison", "Choose an existing MIDI to compare first.")
             return
-        if mode == "music" and self.musescore_export.get() and not Path(self.musescore_path.get()).is_file():
-            messagebox.showerror("MuseScore export", "Choose your MuseScore executable first.")
+        score_tempo = self.score_tempo.get().strip()
+        if mode == "music" and self.musescore_export.get() and score_tempo.lower() != "auto":
+            try:
+                bpm = float(score_tempo)
+                if not math.isfinite(bpm) or not 30 <= bpm <= 300:
+                    raise ValueError()
+            except ValueError:
+                messagebox.showerror("Score tempo", "Enter Auto or a tempo between 30 and 300 BPM.")
+                return
+        if mode == "music" and self.musescore_export.get() and self.pdf_export.get() and not Path(self.musescore_path.get()).is_file():
+            messagebox.showerror("MuseScore export", "The selected MuseScore executable no longer exists.")
             return
         target = destination / (source.stem + "_omnizart")
         try:
@@ -1144,9 +1185,11 @@ class Application(ttk.Frame):
             if self.compare_enabled.get():
                 cmd.extend(["--compare-midi", self.compare_path.get()])
             if self.musescore_export.get():
-                cmd.extend(["--musescore", self.musescore_path.get()])
-                if self.score_grid.get() != "Off":
-                    cmd.extend(["--score-grid", self.score_grid.get()[2:]])
+                cmd.append("--score")
+                if score_tempo.lower() != "auto":
+                    cmd.extend(["--score-tempo", score_tempo])
+                if self.pdf_export.get():
+                    cmd.extend(["--musescore", self.musescore_path.get()])
             if self.lint_notes.get():
                 cmd.append("--lint-notes")
             if self.smooth_notes.get():
@@ -1167,6 +1210,7 @@ class Application(ttk.Frame):
                     cmd.append("--save-accompaniment")
         elif mode == "stems" and gpu_enabled:
             cmd.extend(["--device", "directml", "--gpu-index", gpu_index])
+        self.score_warnings = []
         self.log.configure(state="normal")
         self.log.delete("1.0", "end")
         self.log.configure(state="disabled")
@@ -1199,10 +1243,24 @@ class Application(ttk.Frame):
             while True:
                 kind, value = self.messages.get_nowait()
                 if kind == "log":
+                    if "UserWarning:" in value and any(text in value for text in
+                            ("Piano hand spans", "Dense overlapping piano notes", "Percussion tracks are omitted")):
+                        self.score_warnings.append(value.split("UserWarning:", 1)[1].strip())
                     self.log.configure(state="normal")
                     self.log.insert("end", value)
                     self.log.see("end")
                     self.log.configure(state="disabled")
+                    continue
+                if kind == "optional_install_done":
+                    model, return_code, output = value
+                    self.optional_installing = False
+                    self.start_button.configure(state="normal")
+                    if return_code == 0:
+                        self.status.set(f"{model} is ready. Starting transcription...")
+                        self.start()
+                    else:
+                        self.status.set(f"Could not install {model}.")
+                        messagebox.showerror(f"{model} setup failed", output or "Package installation failed.")
                     continue
                 self.process = None
                 if self.output_lock:
@@ -1245,6 +1303,8 @@ class Application(ttk.Frame):
                     self.status.set("Transcription failed. Open details for more information.")
                     if not self.log_open:
                         self.toggle_log()
+                if kind == "done" and value[0] == 0 and self.score_warnings:
+                    messagebox.showwarning("Score needs review", "\n\n".join(self.score_warnings))
         except queue.Empty:
             pass
         self.after(100, self.poll)
@@ -1265,6 +1325,12 @@ class Application(ttk.Frame):
 
 def main():
     root = tk.Tk()
+
+    def report_callback_exception(exc_type, exc_value, exc_traceback):
+        details = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+        messagebox.showerror("Omnizart error", "An unexpected error occurred:\n\n" + details[-4000:], parent=root)
+
+    root.report_callback_exception = report_callback_exception
     Application(root)
     root.mainloop()
 

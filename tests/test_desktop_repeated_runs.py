@@ -41,7 +41,8 @@ class RepeatedRunsTests(unittest.TestCase):
                     app.lint_notes.set(True)
                     app.musescore_path.set(str(musescore))
                     app.musescore_export.set(True)
-                    app.score_grid.set("1/16")
+                    app.pdf_export.set(True)
+                    app.score_tempo.set("154")
                     reference = folder / "reference.mid"
                     reference.touch()
                     app.compare_path.set(str(reference))
@@ -55,7 +56,8 @@ class RepeatedRunsTests(unittest.TestCase):
                     self.assertEqual(command[command.index("--compare-midi") + 1], str(reference))
                     self.assertIn("--lint-notes", command)
                     self.assertEqual(command[command.index("--musescore") + 1], str(musescore))
-                    self.assertEqual(command[command.index("--score-grid") + 1], "16")
+                    self.assertIn("--score", command)
+                    self.assertEqual(command[command.index("--score-tempo") + 1], "154")
                     app.output_lock.unlink()
                 finally:
                     root.destroy()

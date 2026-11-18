@@ -26,6 +26,45 @@ def _ordered_child(parent, name, before):
     return found
 
 
+def _hide_covered_rests(measure):
+    """Hide rests completely covered by sounding notes in another voice on the same staff.
+
+    The rest remains in MusicXML for timing and playback. Only its printing is
+    suppressed; rests that extend into an actual silence remain visible.
+    """
+    cursor = 0
+    chord_start = 0
+    notes, rests = [], []
+    for event in measure:
+        if event.tag in ("backup", "forward"):
+            duration = int(event.findtext("duration", "0"))
+            cursor += duration if event.tag == "forward" else -duration
+        elif event.tag == "note":
+            duration = int(event.findtext("duration", "0"))
+            chord = event.find("chord") is not None
+            start = chord_start if chord else cursor
+            if not chord:
+                chord_start = start
+                cursor += duration
+            staff = event.findtext("staff", "1")
+            voice = event.findtext("voice", "1")
+            if duration and event.find("rest") is not None:
+                rests.append((start, start + duration, staff, voice, event))
+            elif duration and (event.find("pitch") is not None or event.find("unpitched") is not None):
+                notes.append((start, start + duration, staff, voice))
+    for start, end, staff, voice, rest in rests:
+        covered = start
+        intervals = sorted((left, right) for left, right, note_staff, note_voice in notes
+                           if note_staff == staff and note_voice != voice and right > start and left < end)
+        for left, right in intervals:
+            if left > covered:
+                break
+            covered = max(covered, right)
+            if covered >= end:
+                rest.set("print-object", "no")
+                break
+
+
 def format_musicxml(source, destination, title=None, piano_grand_staff=False):
     """Apply consistent page layout and optional piano grand-staff notation."""
     tree = ElementTree.parse(source)
@@ -72,35 +111,34 @@ def format_musicxml(source, destination, title=None, piano_grand_staff=False):
         if attributes is None:
             attributes = ElementTree.Element("attributes")
             measures[0].insert(0, attributes)
-        clefs = attributes.findall("clef")
-        for clef in clefs:
-            attributes.remove(clef)
-        staves = attributes.find("staves")
-        if staves is None:
-            staves = ElementTree.SubElement(attributes, "staves")
-        staves.text = "2"
-        treble = ElementTree.SubElement(attributes, "clef", number="1")
-        ElementTree.SubElement(treble, "sign").text = "G"
-        ElementTree.SubElement(treble, "line").text = "2"
-        bass = ElementTree.SubElement(attributes, "clef", number="2")
-        ElementTree.SubElement(bass, "sign").text = "F"
-        ElementTree.SubElement(bass, "line").text = "4"
-        for note in part.iter("note"):
-            pitch = note.find("pitch")
-            if pitch is None:
+        # An existing two-staff piano part already has voices, rests, chords,
+        # and backups assigned by the importer. Reassigning individual pitches
+        # breaks that structure, especially for chords spanning middle C.
+        # Only correct the clefs when there are already two staves.
+        staff_count = attributes.findtext("staves")
+        if staff_count != "2":
+            continue
+        for clef in attributes.findall("clef"):
+            number = clef.get("number", "1")
+            if number not in ("1", "2"):
                 continue
-            step = pitch.findtext("step", "C")
-            octave = int(pitch.findtext("octave", "4"))
-            alter = int(pitch.findtext("alter", "0"))
-            semitones = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
-            midi_pitch = 12 * (octave + 1) + semitones[step] + alter
-            staff = note.find("staff")
-            if staff is None:
-                staff = ElementTree.Element("staff")
-                after = ("beam", "notations", "lyric", "play")
-                index = next((i for i, child in enumerate(note) if child.tag in after), len(note))
-                note.insert(index, staff)
-            staff.text = "2" if midi_pitch < 60 else "1"
+            _child(clef, "sign").text = "G" if number == "1" else "F"
+            _child(clef, "line").text = "2" if number == "1" else "4"
+        for measure in measures:
+            for attrs in measure.findall("attributes"):
+                if attrs is attributes:
+                    continue
+                for clef in list(attrs.findall("clef")):
+                    if clef.get("number", "1") in ("1", "2"):
+                        attrs.remove(clef)
+            _hide_covered_rests(measure)
+            # The imported stems were chosen for the original clefs. Let the
+            # notation renderer recompute directions for the corrected clefs
+            # and voices; keep the notes, beams, and ties unchanged.
+            for note in measure.findall("note"):
+                stem = note.find("stem")
+                if stem is not None:
+                    note.remove(stem)
     tree.write(destination, encoding="utf-8", xml_declaration=True)
 
 
